@@ -21,8 +21,15 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import TableManagement from './pages/admin/TableManagement';
 import MenuManagement from './pages/admin/MenuManagement';
 import POS from './pages/admin/POS';
+import KitchenDisplay from './pages/admin/KitchenDisplay';
+import AnalyticsPage from './pages/admin/AnalyticsPage';
+import OrderReportsPage from './pages/admin/OrderReportsPage';
+import DayClosePage from './pages/admin/DayClosePage';
+import StaffManagement from './pages/admin/StaffManagement';
 import PlanManagement from './pages/superadmin/PlanManagement';
 import UserManagement from './pages/superadmin/UserManagement';
+
+const RESTAURANT_STAFF_ROLES = ['ADMIN', 'MANAGER', 'WAITER', 'CASHIER'] as const;
 
 const App = () => {
   const { checkAuth, isLoading } = useAuthStore();
@@ -48,12 +55,16 @@ const App = () => {
       <div className="min-h-screen bg-background-light">
         <Routes>
           {/* Public Routes with Navbar */}
-          <Route element={
-            <div className="flex flex-col min-h-screen">
-              <Navbar />
-              <main className="flex-1"><Outlet /></main>
-            </div>
-          }>
+          <Route
+            element={
+              <div className="flex flex-col min-h-screen">
+                <Navbar />
+                <main className="flex-1">
+                  <Outlet />
+                </main>
+              </div>
+            }
+          >
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -62,30 +73,43 @@ const App = () => {
           </Route>
 
           {/* User Protected Routes with Navbar */}
-          <Route element={
-            <div className="flex flex-col min-h-screen">
-              <Navbar />
-              <main className="flex-1"><ProtectedRoute allowedRoles={['USER', 'ADMIN', 'SUPERADMIN']} /></main>
-            </div>
-          }>
+          <Route
+            element={
+              <div className="flex flex-col min-h-screen">
+                <Navbar />
+                <main className="flex-1">
+                  <ProtectedRoute allowedRoles={['USER', 'ADMIN', 'SUPERADMIN', 'MANAGER', 'WAITER', 'CASHIER']} />
+                </main>
+              </div>
+            }
+          >
             <Route path="/my-bookings" element={<MyBookings />} />
             <Route path="/profile" element={<div>Profile</div>} />
           </Route>
 
-          {/* Admin Protected Routes with Sidebar */}
-          <Route element={<ProtectedRoute allowedRoles={['ADMIN']} />}>
-            <Route element={<AdminLayout role="ADMIN" />}>
+          {/* Kitchen — full screen */}
+          <Route element={<ProtectedRoute allowedRoles={[...RESTAURANT_STAFF_ROLES]} />}>
+            <Route path="/kitchen" element={<KitchenDisplay />} />
+          </Route>
+
+          {/* Restaurant operations (sidebar layout) */}
+          <Route element={<ProtectedRoute allowedRoles={[...RESTAURANT_STAFF_ROLES]} />}>
+            <Route element={<AdminLayout />}>
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/profile" element={<RestaurantSetup />} />
               <Route path="/admin/tables" element={<TableManagement />} />
               <Route path="/admin/menu" element={<MenuManagement />} />
               <Route path="/admin/pos" element={<POS />} />
+              <Route path="/admin/reports" element={<OrderReportsPage />} />
+              <Route path="/admin/day-close" element={<DayClosePage />} />
+              <Route path="/admin/staff" element={<StaffManagement />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
             </Route>
           </Route>
 
-          {/* SuperAdmin Protected Routes with Sidebar */}
+          {/* SuperAdmin */}
           <Route element={<ProtectedRoute allowedRoles={['SUPERADMIN']} />}>
-            <Route element={<AdminLayout role="SUPERADMIN" />}>
+            <Route element={<AdminLayout />}>
               <Route path="/superadmin" element={<SuperAdminDashboard />} />
               <Route path="/superadmin/restaurants" element={<SuperAdminDashboard />} />
               <Route path="/superadmin/plans" element={<PlanManagement />} />

@@ -4,6 +4,50 @@ const prisma = new PrismaClient();
 
 const tableController = require('./tableController');
 
+/** PATCH /restaurants/my — owner updates legal / profile fields (Prisma) */
+exports.patchMyRestaurant = async (req, res) => {
+  try {
+    const rest = await prisma.restaurant.findFirst({ where: { ownerId: req.user.id } });
+    if (!rest) {
+      return res.status(404).json({ success: false, message: 'No restaurant found for this account' });
+    }
+
+    const {
+      name,
+      address,
+      city,
+      cuisine,
+      description,
+      openTime,
+      closeTime,
+      phone,
+      gstin,
+      fssai
+    } = req.body;
+
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (address !== undefined) data.address = address;
+    if (city !== undefined) data.city = city;
+    if (cuisine !== undefined) data.cuisine = cuisine;
+    if (description !== undefined) data.description = description;
+    if (openTime !== undefined) data.openTime = openTime;
+    if (closeTime !== undefined) data.closeTime = closeTime;
+    if (phone !== undefined) data.phone = phone;
+    if (gstin !== undefined) data.gstin = gstin === '' ? null : gstin;
+    if (fssai !== undefined) data.fssai = fssai === '' ? null : fssai;
+
+    const updated = await prisma.restaurant.update({
+      where: { id: rest.id },
+      data
+    });
+
+    res.json({ success: true, message: 'Restaurant updated', data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.getAllRestaurants = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
@@ -161,7 +205,20 @@ exports.deleteRestaurant = async (req, res) => {
 exports.updateRestaurant = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, address, city, cuisine, description, openTime, closeTime, phone, planId, ownerId } = req.body;
+    const {
+      name,
+      address,
+      city,
+      cuisine,
+      description,
+      openTime,
+      closeTime,
+      phone,
+      planId,
+      ownerId,
+      gstin,
+      fssai
+    } = req.body;
     
     // Make sure owner isn't assigned to another restaurant, unless it's the current one
     if (ownerId) {
@@ -171,9 +228,13 @@ exports.updateRestaurant = async (req, res) => {
        }
     }
 
+    const data = { name, address, city, cuisine, description, openTime, closeTime, phone, planId, ownerId };
+    if (gstin !== undefined) data.gstin = gstin === '' ? null : gstin;
+    if (fssai !== undefined) data.fssai = fssai === '' ? null : fssai;
+
     const restaurant = await prisma.restaurant.update({
       where: { id },
-      data: { name, address, city, cuisine, description, openTime, closeTime, phone, planId, ownerId }
+      data
     });
     
     // Update owner's role to ADMIN if changed

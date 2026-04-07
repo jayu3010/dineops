@@ -5,7 +5,7 @@ interface User {
   id: string;
   name: string;
   email: string;
-  role: 'SUPERADMIN' | 'ADMIN' | 'USER';
+  role: 'SUPERADMIN' | 'ADMIN' | 'MANAGER' | 'WAITER' | 'CASHIER' | 'USER';
   restaurantId?: string;
   tenantId?: string;
   restaurant?: any;

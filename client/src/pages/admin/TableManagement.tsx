@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Edit2, Save, Users, Layers } from 'lucide-react';
 import api from '../../api/axios';
@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/authStore';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../../hooks/useSocket';
+import { sortTablesByNumber } from '../../utils/sortTables';
 
 interface Table {
   id: string;
@@ -37,6 +38,11 @@ const TableManagement = () => {
     },
     enabled: !!restaurantId
   });
+
+  const tablesSorted = useMemo(
+    () => (tables?.length ? sortTablesByNumber(tables as Table[]) : []),
+    [tables]
+  );
 
   const createMutation = useMutation({
     mutationFn: (table: any) => api.post('/tables', { ...table, restaurantId }),
@@ -106,7 +112,7 @@ const TableManagement = () => {
 
         {/* Tables Layer */}
         <AnimatePresence>
-          {tables?.map((table: Table) => (
+          {tablesSorted.map((table: Table) => (
             <motion.div
               key={table.id}
               drag
@@ -156,7 +162,7 @@ const TableManagement = () => {
           ))}
         </AnimatePresence>
 
-        {(!tables || tables.length === 0) && (
+        {tablesSorted.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-muted">
             <Layers size={48} className="mb-4 opacity-20" />
             <p className="font-medium">No tables added yet.</p>

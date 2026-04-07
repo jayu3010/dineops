@@ -11,7 +11,7 @@ const api = axios.create({
 // Add a request interceptor to log requests and add token
 api.interceptors.request.use((config) => {
   const timestamp = new Date().toLocaleTimeString();
-  
+
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
 🚀 API REQUEST OUTGOING
@@ -42,7 +42,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => {
     const timestamp = new Date().toLocaleTimeString();
-    
+
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ✅ API RESPONSE RECEIVED
@@ -53,7 +53,7 @@ api.interceptors.response.use(
 `);
 
     console.log('📄 RESPONSE DATA:', response.data);
-    
+
     console.log(`╚════════════════════════════════════════════════════════════╝
 `);
 
@@ -61,7 +61,7 @@ api.interceptors.response.use(
   },
   (error) => {
     const timestamp = new Date().toLocaleTimeString();
-    
+
     console.error(`
 ╔════════════════════════════════════════════════════════════╗
 ❌ API ERROR

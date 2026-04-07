@@ -88,6 +88,8 @@ app.use('/api/v1/bookings', require('./src/routes/bookingRoutes'));
 app.use('/api/v1/menu', require('./src/routes/menuRoutes'));
 app.use('/api/v1/orders', require('./src/routes/orderRoutes'));
 app.use('/api/v1/plans', require('./src/routes/planRoutes'));
+app.use('/api/v1/analytics', require('./src/routes/analyticsRoutes'));
+app.use('/api/v1/staff', require('./src/routes/staffRoutes'));
 
 // Root route
 app.get('/', (req, res) => {

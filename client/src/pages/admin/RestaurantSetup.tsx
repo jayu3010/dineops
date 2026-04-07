@@ -8,7 +8,7 @@ import { useAuthStore } from '../../store/authStore';
 const RestaurantSetup = () => {
   const { user, checkAuth } = useAuthStore();
   const navigate = useNavigate();
-  const isEditing = !!user?.restaurant;
+  const isEditing = !!user?.restaurant && user?.role === 'ADMIN';
 
   const [formData, setFormData] = useState({
     name: user?.restaurant?.name || '',
@@ -19,7 +19,9 @@ const RestaurantSetup = () => {
     openTime: user?.restaurant?.openTime || '09:00',
     closeTime: user?.restaurant?.closeTime || '22:00',
     phone: user?.restaurant?.phone || '',
-    planId: user?.restaurant?.planId || ''
+    planId: user?.restaurant?.planId || '',
+    gstin: user?.restaurant?.gstin || '',
+    fssai: user?.restaurant?.fssai || ''
   });
 
   const [plans, setPlans] = useState<any[]>([]);
@@ -46,10 +48,25 @@ const RestaurantSetup = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      const endpoint = isEditing ? `/restaurants/${user.restaurant.id}` : '/restaurants/register';
+      const endpoint = isEditing ? '/restaurants/my' : '/restaurants/register';
       const method = isEditing ? 'patch' : 'post';
-      
-      const response = await api[method](endpoint, formData);
+
+      const payload = isEditing
+        ? {
+            name: formData.name,
+            address: formData.address,
+            city: formData.city,
+            cuisine: formData.cuisine,
+            description: formData.description,
+            openTime: formData.openTime,
+            closeTime: formData.closeTime,
+            phone: formData.phone,
+            gstin: formData.gstin,
+            fssai: formData.fssai
+          }
+        : formData;
+
+      const response = await api[method](endpoint, payload);
       if (response.data.success) {
         toast.success(isEditing ? 'Restaurant details updated!' : 'Restaurant registered! Waiting for approval.');
         await checkAuth(); // Refreshes user object with restaurant details
@@ -113,6 +130,27 @@ const RestaurantSetup = () => {
                     value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1 block text-gray-700">GSTIN (tax invoice)</label>
+                <input
+                  type="text"
+                  className="input-field font-mono text-sm"
+                  placeholder="22AAAAA0000A1Z5"
+                  value={formData.gstin}
+                  onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block text-gray-700">FSSAI licence no. (optional)</label>
+                <input
+                  type="text"
+                  className="input-field font-mono text-sm"
+                  placeholder="Licence number"
+                  value={formData.fssai}
+                  onChange={(e) => setFormData({ ...formData, fssai: e.target.value })}
+                />
               </div>
             </div>
           </div>

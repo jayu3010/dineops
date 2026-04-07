@@ -24,9 +24,9 @@ const LoginPage = () => {
         loginStore(user, accessToken);
         toast.success('Welcome back!');
         
-        // Redirect based on role
         if (user.role === 'SUPERADMIN') navigate('/superadmin');
-        else if (user.role === 'ADMIN') navigate('/admin');
+        else if (user.role === 'ADMIN' || user.role === 'MANAGER') navigate('/admin');
+        else if (user.role === 'WAITER' || user.role === 'CASHIER') navigate('/admin/pos');
         else navigate('/');
       }
     } catch (error: any) {

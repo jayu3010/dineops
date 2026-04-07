@@ -132,6 +132,116 @@ async function main() {
       console.log(`${tableCount} tables already exist`);
     }
   }
+
+  // 5. Menu categories & items (Indian / casual dining — looks real in POS)
+  if (restaurant) {
+    const menuCount = await prisma.menuCategory.count({
+      where: { restaurantId: restaurant.id }
+    });
+    if (menuCount === 0) {
+      console.log('Seeding menu categories and items...');
+      // 5 categories, 10 items total — reads like a real Indian dining menu
+      const menuCatalog = [
+        {
+          name: 'Starters & Small Plates',
+          items: [
+            {
+              name: 'Paneer Tikka',
+              description: 'Cottage cheese cubes, yogurt marinade, char-grilled with peppers & onion',
+              price: 320
+            },
+            {
+              name: 'Chicken Tikka',
+              description: 'Boneless chicken, classic spices, served with mint chutney',
+              price: 360
+            }
+          ]
+        },
+        {
+          name: 'Curries & Gravies',
+          items: [
+            {
+              name: 'Butter Chicken',
+              description: 'Tomato-butter gravy, tender chicken — pairs well with naan',
+              price: 380
+            },
+            {
+              name: 'Dal Makhani',
+              description: 'Slow-cooked black lentils, cream & butter — vegetarian',
+              price: 280
+            }
+          ]
+        },
+        {
+          name: 'Breads & Rice',
+          items: [
+            {
+              name: 'Garlic Naan',
+              description: 'Tandoor-baked flatbread brushed with garlic butter',
+              price: 90
+            },
+            {
+              name: 'Jeera Rice',
+              description: 'Basmati rice tempered with cumin — light & fragrant',
+              price: 160
+            }
+          ]
+        },
+        {
+          name: 'Biryani & Rice Bowls',
+          items: [
+            {
+              name: 'Hyderabadi Veg Biryani',
+              description: 'Layered basmati, vegetables, aromatic spices — raita on the side',
+              price: 320
+            },
+            {
+              name: 'Chicken Dum Biryani',
+              description: 'Slow-cooked on dum — leg piece, fried onion',
+              price: 420
+            }
+          ]
+        },
+        {
+          name: 'Beverages & Desserts',
+          items: [
+            {
+              name: 'Masala Chai',
+              description: 'House-brewed spiced tea — kadak or light',
+              price: 60
+            },
+            {
+              name: 'Gulab Jamun (2 pcs)',
+              description: 'Warm milk dumplings in rose-cardamom syrup',
+              price: 120
+            }
+          ]
+        }
+      ];
+
+      for (const cat of menuCatalog) {
+        await prisma.menuCategory.create({
+          data: {
+            restaurantId: restaurant.id,
+            name: cat.name,
+            items: {
+              create: cat.items.map((it) => ({
+                name: it.name,
+                description: it.description,
+                price: it.price,
+                isAvailable: true
+              }))
+            }
+          }
+        });
+      }
+      console.log(
+        `Menu seeded: ${menuCatalog.length} categories, ${menuCatalog.reduce((n, c) => n + c.items.length, 0)} items.`
+      );
+    } else {
+      console.log(`Menu already has ${menuCount} categories — skipping menu seed`);
+    }
+  }
 }
 
 main()

@@ -8,19 +8,24 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(auto()) @map("_id") @db.ObjectId
-  name          String
-  email         String         @unique
-  password      String
-  role          String         @default("USER") // SUPERADMIN, ADMIN, USER
-  restaurant    Restaurant?    @relation("RestaurantOwner")
-  isVerified    Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  bookings      Booking[]
-  reviews       Review[]
-  notifications Notification[]
-  orders        Order[]
+  id                  String       @id @default(auto()) @map("_id") @db.ObjectId
+  name                String
+  email               String       @unique
+  password            String
+  role                String       @default("USER")
+  /// Restaurant this user owns (admin); mutually exclusive with staff assignment for normal cases
+  restaurant          Restaurant?  @relation("RestaurantOwner")
+  /// Staff: restaurant they work at (MANAGER, WAITER, CASHIER)
+  staffRestaurantId   String?      @db.ObjectId
+  /// NoAction breaks User ↔ Restaurant cycle (owner + staff); clear staff FK in app if restaurant is removed.
+  staffRestaurant     Restaurant?  @relation("RestaurantStaff", fields: [staffRestaurantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  isVerified          Boolean      @default(false)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  bookings            Booking[]
+  reviews             Review[]
+  notifications       Notification[]
+  orders              Order[]
 }
 
 model Restaurant {
@@ -35,11 +40,14 @@ model Restaurant {
   openTime       String
   closeTime      String
   phone          String
+  gstin          String?
+  fssai          String?
   status         String         @default("PENDING")
   planId         String         @db.ObjectId
   plan           Plan           @relation(fields: [planId], references: [id])
   ownerId        String         @unique @db.ObjectId
   owner          User           @relation("RestaurantOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  staffMembers   User[]         @relation("RestaurantStaff")
   tables         Table[]
   timeSlots      TimeSlot[]
   bookings       Booking[]
@@ -172,28 +180,41 @@ model MenuItem {
 }
 
 model Order {
-  id           String      @id @default(auto()) @map("_id") @db.ObjectId
-  restaurantId String      @db.ObjectId
-  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  userId       String?     @db.ObjectId
-  user         User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tableId      String?     @db.ObjectId
-  table        Table?      @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  status       String      @default("PENDING")
-  totalAmount  Float       @default(0)
-  items        OrderItem[]
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId   String      @db.ObjectId
+  restaurant     Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  userId         String?     @db.ObjectId
+  user           User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tableId        String?     @db.ObjectId
+  table          Table?      @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  /// Kitchen + lifecycle: PENDING → PREPARING → READY → SERVED → COMPLETED (after payment)
+  status         String      @default("PENDING")
+  paymentStatus  String      @default("UNPAID")
+  paymentMode    String?
+  customerName   String?
+  customerPhone  String?
+  orderType      String      @default("DINE_IN")
+  subtotal       Float       @default(0)
+  gstAmount      Float       @default(0)
+  discountType   String?
+  discountValue  Float       @default(0)
+  discountAmount Float       @default(0)
+  totalAmount    Float       @default(0)
+  completedAt    DateTime?
+  items          OrderItem[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 }
 
 model OrderItem {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  orderId    String   @db.ObjectId
-  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  menuItemId String   @db.ObjectId
-  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  orderId    String    @db.ObjectId
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String    @db.ObjectId
+  menuItem   MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  name       String   @default("")
   quantity   Int
   price      Float
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }

@@ -1,44 +1,87 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Store, 
-  Users, 
-  LogOut, 
-  ChevronLeft, 
+import {
+  LayoutDashboard,
+  Store,
+  Users,
+  LogOut,
+  ChevronLeft,
   ChevronRight,
   TrendingUp,
   CreditCard,
   Utensils,
-  Receipt
+  Receipt,
+  FileBarChart,
+  UserCog,
+  CalendarClock,
+  ChefHat
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { motion } from 'framer-motion';
 
-const Sidebar = ({ role }: { role: 'SUPERADMIN' | 'ADMIN' }) => {
+type SidebarLink = {
+  icon: React.ComponentType<{ size?: number }>;
+  label: string;
+  path: string;
+  end?: boolean;
+};
+
+const superAdminLinks: SidebarLink[] = [
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/superadmin', end: true },
+  { icon: Store, label: 'Restaurants', path: '/superadmin/restaurants' },
+  { icon: CreditCard, label: 'Plans', path: '/superadmin/plans' },
+  { icon: Users, label: 'Users', path: '/superadmin/users' }
+];
+
+const ownerLinks: SidebarLink[] = [
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/admin', end: true },
+  { icon: Receipt, label: 'POS / Billing', path: '/admin/pos' },
+  { icon: Users, label: 'Tables', path: '/admin/tables' },
+  { icon: FileBarChart, label: 'Orders & payments', path: '/admin/reports' },
+  { icon: CalendarClock, label: 'Day close', path: '/admin/day-close' },
+  { icon: TrendingUp, label: 'Analytics', path: '/analytics' },
+  { icon: Utensils, label: 'Menu', path: '/admin/menu' },
+  { icon: UserCog, label: 'Staff', path: '/admin/staff' },
+  { icon: ChefHat, label: 'Kitchen', path: '/kitchen' },
+  { icon: Store, label: 'My Restaurant', path: '/admin/profile' }
+];
+
+const managerLinks: SidebarLink[] = [
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/admin', end: true },
+  { icon: Receipt, label: 'POS / Billing', path: '/admin/pos' },
+  { icon: Users, label: 'Tables', path: '/admin/tables' },
+  { icon: FileBarChart, label: 'Orders & payments', path: '/admin/reports' },
+  { icon: CalendarClock, label: 'Day close', path: '/admin/day-close' },
+  { icon: TrendingUp, label: 'Analytics', path: '/analytics' },
+  { icon: Utensils, label: 'Menu', path: '/admin/menu' },
+  { icon: ChefHat, label: 'Kitchen', path: '/kitchen' }
+];
+
+const waiterLinks: SidebarLink[] = [
+  { icon: Receipt, label: 'POS / Billing', path: '/admin/pos' },
+  { icon: ChefHat, label: 'Kitchen', path: '/kitchen' }
+];
+
+const cashierLinks: SidebarLink[] = [{ icon: Receipt, label: 'POS / Billing', path: '/admin/pos' }];
+
+const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const { user, logout } = useAuthStore();
+  const role = user?.role;
 
-  const superAdminLinks = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/superadmin' },
-    { icon: Store, label: 'Restaurants', path: '/superadmin/restaurants' },
-    { icon: CreditCard, label: 'Plans', path: '/superadmin/plans' },
-    { icon: Users, label: 'Users', path: '/superadmin/users' },
-  ];
-
-  const adminLinks = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/admin' },
-    { icon: Store, label: 'My Restaurant', path: '/admin/profile' },
-    { icon: Utensils, label: 'Menu', path: '/admin/menu' },
-    { icon: Receipt, label: 'POS / Billing', path: '/admin/pos' },
-    { icon: Users, label: 'Tables', path: '/admin/tables' },
-    { icon: TrendingUp, label: 'Analytics', path: '/admin/analytics' },
-  ];
-
-  const links = role === 'SUPERADMIN' ? superAdminLinks : adminLinks;
+  let links: SidebarLink[] = superAdminLinks;
+  if (role === 'ADMIN') {
+    links = ownerLinks;
+  } else if (role === 'MANAGER') {
+    links = managerLinks;
+  } else if (role === 'WAITER') {
+    links = waiterLinks;
+  } else if (role === 'CASHIER') {
+    links = cashierLinks;
+  }
 
   return (
-    <motion.aside 
+    <motion.aside
       animate={{ width: isCollapsed ? 80 : 256 }}
       className="h-screen sticky top-0 bg-stone-900 text-white flex flex-col transition-all duration-300"
     >
@@ -46,7 +89,8 @@ const Sidebar = ({ role }: { role: 'SUPERADMIN' | 'ADMIN' }) => {
         {!isCollapsed && (
           <span className="text-xl font-serif font-bold text-primary">ReserveTable</span>
         )}
-        <button 
+        <button
+          type="button"
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
         >
@@ -59,9 +103,14 @@ const Sidebar = ({ role }: { role: 'SUPERADMIN' | 'ADMIN' }) => {
           <NavLink
             key={link.path}
             to={link.path}
+            end={Boolean(link.end)}
             className={({ isActive }) => `
               flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all
-              ${isActive ? 'bg-primary text-white shadow-lg shadow-orange-500/20' : 'text-gray-400 hover:text-white hover:bg-white/5'}
+              ${
+                isActive
+                  ? 'bg-primary text-white shadow-lg shadow-orange-500/20'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }
             `}
           >
             <link.icon size={20} />
@@ -82,7 +131,8 @@ const Sidebar = ({ role }: { role: 'SUPERADMIN' | 'ADMIN' }) => {
             </div>
           )}
         </div>
-        <button 
+        <button
+          type="button"
           onClick={logout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-400 hover:text-danger hover:bg-red-500/5 transition-all"
         >

@@ -2,8 +2,10 @@ import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
+export type AppRole = 'SUPERADMIN' | 'ADMIN' | 'MANAGER' | 'WAITER' | 'CASHIER' | 'USER';
+
 interface ProtectedRouteProps {
-  allowedRoles?: ('SUPERADMIN' | 'ADMIN' | 'USER')[];
+  allowedRoles?: AppRole[];
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) => {
@@ -21,7 +23,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role as any)) {
+  if (allowedRoles && !allowedRoles.includes(user.role as AppRole)) {
     return <Navigate to="/" replace />;
   }
 

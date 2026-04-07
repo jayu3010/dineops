@@ -1,10 +1,16 @@
 const jwt = require('jsonwebtoken');
 
 const generateAccessToken = (user) => {
+  const restaurantId =
+    user.restaurantId ??
+    user.restaurant?.id ??
+    user.staffRestaurantId ??
+    user.staffRestaurant?.id ??
+    null;
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role, restaurantId: user.restaurantId },
+    { id: user.id, email: user.email, role: user.role, restaurantId },
     process.env.JWT_ACCESS_SECRET,
-    { expiresIn: '15m' }
+    { expiresIn: '24h' }
   );
 };
 

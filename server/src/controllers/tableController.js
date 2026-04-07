@@ -1,14 +1,24 @@
 const { PrismaClient } = require('@prisma/client');
 const { MongoClient } = require('mongodb');
+const { assertRestaurantAccess } = require('../utils/restaurantScope');
 const prisma = new PrismaClient();
+
+/** T1, T2, … T9, T10 (not T1, T10, T2…) */
+function sortTablesByNumberNatural(tables) {
+  const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+  return [...tables].sort((a, b) =>
+    collator.compare(String(a.tableNumber ?? ''), String(b.tableNumber ?? ''))
+  );
+}
 
 exports.getTables = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
+    const { restaurantId } = req.params;
+    await assertRestaurantAccess(req, restaurantId);
+
     await client.connect();
     const db = client.db('petpooja-copy');
-
-    const { restaurantId } = req.params;
     const tables = await db.collection('Table').find({
       restaurantId: require('mongodb').ObjectId.createFromHexString(restaurantId)
     }).project({
@@ -20,9 +30,11 @@ exports.getTables = async (req, res) => {
       x: 1,
       y: 1,
       restaurantId: { $toString: '$restaurantId' }
-    }).sort({ tableNumber: 1 }).toArray();
+    }).toArray();
 
-    res.json({ success: true, data: tables });
+    const sorted = sortTablesByNumberNatural(tables);
+
+    res.json({ success: true, data: sorted });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   } finally {

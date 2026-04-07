@@ -4,6 +4,16 @@ const { MongoClient } = require('mongodb');
 const { generateAccessToken, generateRefreshToken } = require('../utils/tokenUtils');
 const prisma = new PrismaClient();
 
+function sanitizeAuthUser(user) {
+  if (!user) return null;
+  const { password, staffRestaurant, restaurant, ...rest } = user;
+  const effectiveRestaurant = restaurant || staffRestaurant || null;
+  return {
+    ...rest,
+    restaurant: effectiveRestaurant
+  };
+}
+
 exports.register = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
@@ -36,7 +46,7 @@ exports.register = async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    res.cookie('accessToken', accessToken, { httpOnly: true, maxAge: 15 * 60 * 1000 });
+    res.cookie('accessToken', accessToken, { httpOnly: true, maxAge: 24 * 60 * 60 * 1000 });
     res.cookie('refreshToken', refreshToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
 
     const { password: _, ...userWithoutPassword } = user;
@@ -56,7 +66,7 @@ exports.login = async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { restaurant: true }
+      include: { restaurant: true, staffRestaurant: true }
     });
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
@@ -66,14 +76,13 @@ exports.login = async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    res.cookie('accessToken', accessToken, { httpOnly: true, maxAge: 15 * 60 * 1000 });
+    res.cookie('accessToken', accessToken, { httpOnly: true, maxAge: 24 * 60 * 60 * 1000 });
     res.cookie('refreshToken', refreshToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
 
-    const { password: _, ...userWithoutPassword } = user;
     res.json({
       success: true,
       message: 'Login successful',
-      data: { user: userWithoutPassword, accessToken }
+      data: { user: sanitizeAuthUser(user), accessToken }
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -90,10 +99,12 @@ exports.me = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      include: { restaurant: true }
+      include: { restaurant: true, staffRestaurant: true }
     });
-    const { password: _, ...userWithoutPassword } = user;
-    res.json({ success: true, data: userWithoutPassword });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    res.json({ success: true, data: sanitizeAuthUser(user) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
