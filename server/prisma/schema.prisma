@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  email         String         @unique
+  password      String
+  role          String         @default("USER") // SUPERADMIN, ADMIN, USER
+  restaurant    Restaurant?    @relation("RestaurantOwner")
+  isVerified    Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  bookings      Booking[]
+  reviews       Review[]
+  notifications Notification[]
+  orders        Order[]
+}
+
+model Restaurant {
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId       String         @unique
+  name           String
+  logo           String?
+  address        String
+  city           String
+  cuisine        String
+  description    String
+  openTime       String
+  closeTime      String
+  phone          String
+  status         String         @default("PENDING")
+  planId         String         @db.ObjectId
+  plan           Plan           @relation(fields: [planId], references: [id])
+  ownerId        String         @unique @db.ObjectId
+  owner          User           @relation("RestaurantOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  tables         Table[]
+  timeSlots      TimeSlot[]
+  bookings       Booking[]
+  reviews        Review[]
+  subscriptions  Subscription[]
+  menuCategories MenuCategory[]
+  orders         Order[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Table {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId String      @db.ObjectId
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  tableNumber  String
+  capacity     Int
+  section      String?
+  shape        String      @default("SQUARE")
+  status       String      @default("AVAILABLE")
+  x            Float       @default(0)
+  y            Float       @default(0)
+  bookings     Booking[]
+  orders       Order[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model TimeSlot {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId String      @db.ObjectId
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  startTime    String
+  endTime      String
+  isActive     Boolean     @default(true)
+  bookings     Booking[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Booking {
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String         @db.ObjectId
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurantId   String         @db.ObjectId
+  restaurant     Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  tableId        String         @db.ObjectId
+  table          Table          @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  slotId         String         @db.ObjectId
+  slot           TimeSlot       @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  date           DateTime
+  guestCount     Int
+  status         String         @default("PENDING")
+  specialRequest String?
+  paymentStatus  String         @default("PENDING")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Plan {
+  id                  String         @id @default(auto()) @map("_id") @db.ObjectId
+  name                String         @unique
+  price               Float
+  maxTables           Int
+  maxBookingsPerMonth Int
+  features            String
+  restaurants         Restaurant[]
+  subscriptions       Subscription[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+}
+
+model Subscription {
+  id           String             @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId String             @db.ObjectId
+  restaurant   Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  planId       String             @db.ObjectId
+  plan         Plan               @relation(fields: [planId], references: [id], onDelete: Cascade)
+  startDate    DateTime
+  endDate      DateTime
+  status       String             @default("TRIAL")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+model Review {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String     @db.ObjectId
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurantId String     @db.ObjectId
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  rating       Int
+  comment      String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model MenuCategory {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId String      @db.ObjectId
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  items        MenuItem[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model MenuItem {
+  id          String       @id @default(auto()) @map("_id") @db.ObjectId
+  categoryId  String       @db.ObjectId
+  category    MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  price       Float
+  image       String?
+  isAvailable Boolean      @default(true)
+  orderItems  OrderItem[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Order {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId String      @db.ObjectId
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  userId       String?     @db.ObjectId
+  user         User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tableId      String?     @db.ObjectId
+  table        Table?      @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  status       String      @default("PENDING")
+  totalAmount  Float       @default(0)
+  items        OrderItem[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model OrderItem {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId    String   @db.ObjectId
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String   @db.ObjectId
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  quantity   Int
+  price      Float
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
