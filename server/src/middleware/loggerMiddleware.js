@@ -12,16 +12,18 @@ const loggerMiddleware = (req, res, next) => {
 ╠════════════════════════════════════════════════════════════╝
 `);
 
+  const safeObjectKeys = (obj) => obj && typeof obj === 'object' ? Object.keys(obj) : [];
+
   // Log request details
-  if (Object.keys(req.body).length > 0) {
+  if (safeObjectKeys(req.body).length > 0) {
     console.log('📦 BODY:', JSON.stringify(req.body, null, 2));
   }
 
-  if (Object.keys(req.query).length > 0) {
+  if (safeObjectKeys(req.query).length > 0) {
     console.log('❓ QUERY:', JSON.stringify(req.query, null, 2));
   }
 
-  if (Object.keys(req.params).length > 0) {
+  if (safeObjectKeys(req.params).length > 0) {
     console.log('🔗 PARAMS:', JSON.stringify(req.params, null, 2));
   }
 
