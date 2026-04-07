@@ -8,7 +8,7 @@ exports.getAllRestaurants = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const restaurants = await db.collection('Restaurant').aggregate([
       {
@@ -68,7 +68,7 @@ exports.updateRestaurantStatus = async (req, res) => {
     const { status } = req.body; // ACTIVE, SUSPENDED, PENDING
 
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const result = await db.collection('Restaurant').updateOne(
       { _id: require('mongodb').ObjectId.createFromHexString(id) },
@@ -97,7 +97,7 @@ exports.registerRestaurant = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { name, address, city, cuisine, description, openTime, closeTime, phone, planId, ownerId: reqOwnerId } = req.body;
 

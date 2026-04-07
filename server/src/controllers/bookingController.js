@@ -6,7 +6,7 @@ exports.createBooking = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { restaurantId, tableId, date, time, guests, fullName, email, phone } = req.body;
     const userId = req.user?.id; // Optional if guest booking

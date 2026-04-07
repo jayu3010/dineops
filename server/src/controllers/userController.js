@@ -8,7 +8,7 @@ exports.createUser = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { name, email, password, role } = req.body;
 
@@ -60,7 +60,7 @@ exports.getAllUsers = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const users = await db.collection('User').find({}, {
       projection: {
@@ -109,7 +109,7 @@ exports.updateUserRole = async (req, res) => {
     }
 
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const result = await db.collection('User').updateOne(
       { _id: require('mongodb').ObjectId.createFromHexString(id) },
@@ -140,7 +140,7 @@ exports.deleteUser = async (req, res) => {
     }
 
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const result = await db.collection('User').deleteOne({
       _id: require('mongodb').ObjectId.createFromHexString(id)

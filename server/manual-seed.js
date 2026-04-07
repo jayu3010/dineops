@@ -2,14 +2,14 @@ const { MongoClient } = require('mongodb');
 const bcrypt = require('bcrypt');
 
 async function seedDatabase() {
-  const uri = 'mongodb://localhost:27017/petpooja_mongodb';
+  const uri = 'mongodb://localhost:27017/petpooja-copy';
   const client = new MongoClient(uri);
 
   try {
     await client.connect();
     console.log('Connected to MongoDB');
 
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     // 1. Create SuperAdmin
     const adminEmail = 'superadmin@petpooja.com';

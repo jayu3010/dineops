@@ -6,7 +6,7 @@ exports.getAllPlans = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const plans = await db.collection('Plan').find({}).project({
       id: { $toString: '$_id' },
@@ -30,7 +30,7 @@ exports.createPlan = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { name, price, maxTables, maxBookingsPerMonth, features } = req.body;
     const planData = {

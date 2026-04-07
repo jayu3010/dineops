@@ -6,7 +6,7 @@ exports.getTables = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { restaurantId } = req.params;
     const tables = await db.collection('Table').find({
@@ -35,7 +35,7 @@ exports.initializeTables = async (restaurantId) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const tablesCount = await db.collection('Table').countDocuments({
       restaurantId: require('mongodb').ObjectId.createFromHexString(restaurantId)
@@ -67,7 +67,7 @@ exports.createTable = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { tableNumber, capacity, shape, x, y, restaurantId } = req.body;
 

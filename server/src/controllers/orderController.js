@@ -7,7 +7,7 @@ exports.createOrder = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { restaurantId, tableId, items } = req.body; // items: [{menuItemId, quantity, price}]
     const userId = req.user.id;

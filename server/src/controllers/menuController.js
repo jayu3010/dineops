@@ -7,7 +7,7 @@ exports.createCategory = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { name, restaurantId } = req.body;
     const categoryData = {
@@ -33,7 +33,7 @@ exports.getMenu = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { restaurantId } = req.params;
     const categories = await db.collection('MenuCategory').aggregate([
@@ -84,7 +84,7 @@ exports.updateCategory = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { id } = req.params;
     const { name } = req.body;
@@ -111,7 +111,7 @@ exports.deleteCategory = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { id } = req.params;
 
@@ -136,7 +136,7 @@ exports.createMenuItem = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {
     await client.connect();
-    const db = client.db('petpooja_mongodb');
+    const db = client.db('petpooja-copy');
 
     const { categoryId, name, description, price, image } = req.body;
     const itemData = {
