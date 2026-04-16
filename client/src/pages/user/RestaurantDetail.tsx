@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
   MapPin, 
@@ -8,8 +8,8 @@ import {
   Star, 
   Info, 
   ChevronRight,
-  Users,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  ShoppingBag
 } from 'lucide-react';
 import api from '../../api/axios';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,39 +24,51 @@ const RestaurantDetail = () => {
   const [step, setStep] = useState(1);
   const [bookingData, setBookingData] = useState({
     date: new Date().toISOString().split('T')[0],
-    time: '19:00',
     guests: 2,
-    tableId: '',
+    slotId: '',
+    slotLabel: '',
     fullName: '',
     email: '',
     phone: ''
   });
 
+  useEffect(() => {
+    setBookingData((prev) => ({ ...prev, slotId: '', slotLabel: '' }));
+  }, [bookingData.date, bookingData.guests]);
+
   const { data: restaurant, isLoading } = useQuery({
     queryKey: ['restaurant', tenantId],
     queryFn: async () => {
-      const res = await api.get(`/restaurants`); // Should be get by tenantId in real app
-      return res.data.data.find((r: any) => r.tenantId === tenantId);
-    }
-  });
-
-  const { data: tables } = useQuery({
-    queryKey: ['tables', tenantId],
-    queryFn: async () => {
-      const res = await api.get(`/tables/${tenantId}`);
+      const res = await api.get(`/restaurants/public/${tenantId}`);
       return res.data.data;
     },
-    enabled: !!restaurant
+    enabled: !!tenantId
+  });
+
+  const { data: timeSlots } = useQuery({
+    queryKey: ['timeslots-public', tenantId, bookingData.date, bookingData.guests],
+    queryFn: async () => {
+      const res = await api.get(
+        `/bookings/slots/public/${tenantId}?date=${encodeURIComponent(bookingData.date)}&guests=${bookingData.guests}`
+      );
+      return res.data.data as { id: string; startTime: string; endTime: string; label: string; available: boolean }[];
+    },
+    enabled: !!tenantId && !!restaurant
   });
 
   const handleBooking = async () => {
     try {
       const res = await api.post('/bookings', {
-        ...bookingData,
-        restaurantId: restaurant.id
+        restaurantId: restaurant.id,
+        slotId: bookingData.slotId,
+        date: bookingData.date,
+        guests: bookingData.guests,
+        fullName: bookingData.fullName,
+        email: bookingData.email,
+        phone: bookingData.phone
       });
       if (res.data.success) {
-        toast.success('Table booked successfully!');
+        toast.success('Reservation confirmed!');
         setStep(4); // Success step
       }
     } catch (error: any) {
@@ -71,19 +83,32 @@ const RestaurantDetail = () => {
     <div className="min-h-screen bg-background-light">
       {/* Hero Header */}
       <div className="relative h-[400px] bg-stone-900 overflow-hidden">
+        {restaurant.logo && (
+          <img
+            src={restaurant.logo}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover opacity-40"
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent"></div>
         <div className="absolute bottom-0 left-0 right-0 p-8 md:p-16 max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <span className="bg-primary text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">{restaurant.cuisine}</span>
-                <div className="flex items-center gap-1 text-accent">
-                  <Star fill="currentColor" size={14} />
-                  <Star fill="currentColor" size={14} />
-                  <Star fill="currentColor" size={14} />
-                  <Star fill="currentColor" size={14} />
-                  <Star size={14} />
-                  <span className="text-white ml-2 text-sm font-medium">(120+ Reviews)</span>
+                <div className="flex items-center gap-0.5 text-accent">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Star
+                      key={i}
+                      size={14}
+                      fill={i <= Math.round(restaurant.averageRating ?? 0) ? 'currentColor' : 'none'}
+                      className={i <= Math.round(restaurant.averageRating ?? 0) ? '' : 'text-white/40'}
+                    />
+                  ))}
+                  <span className="text-white ml-2 text-sm font-medium">
+                    ({restaurant.reviewCount ?? 0}{' '}
+                    {(restaurant.reviewCount ?? 0) === 1 ? 'review' : 'reviews'})
+                  </span>
                 </div>
               </div>
               <h1 className="text-4xl md:text-6xl font-serif font-bold text-white mb-4">{restaurant.name}</h1>
@@ -92,12 +117,21 @@ const RestaurantDetail = () => {
                 <span className="flex items-center gap-2"><Clock size={18} className="text-primary" /> {restaurant.openTime} - {restaurant.closeTime}</span>
               </div>
             </div>
-            <button 
-              onClick={() => document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' })}
-              className="btn-primary px-10 py-4 text-lg shadow-xl shadow-orange-500/20"
-            >
-              Book a Table
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to={`/order/${tenantId}`}
+                className="inline-flex items-center justify-center gap-2 bg-white text-stone-900 px-8 py-4 text-lg font-bold rounded-xl shadow-xl hover:bg-stone-100 transition-colors"
+              >
+                <ShoppingBag size={22} />
+                Order online
+              </Link>
+              <button 
+                onClick={() => document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' })}
+                className="btn-primary px-10 py-4 text-lg shadow-xl shadow-orange-500/20"
+              >
+                Book a Table
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -164,26 +198,25 @@ const RestaurantDetail = () => {
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-bold text-gray-700 block mb-2">Time</label>
-                        <select 
-                          className="input-field"
-                          value={bookingData.time} onChange={(e) => setBookingData({...bookingData, time: e.target.value})}
-                        >
-                          <option>18:00</option><option>19:00</option><option>20:00</option><option>21:00</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-sm font-bold text-gray-700 block mb-2">Guests</label>
-                        <select 
-                          className="input-field"
-                          value={bookingData.guests} onChange={(e) => setBookingData({...bookingData, guests: parseInt(e.target.value)})}
-                        >
-                          {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} Guests</option>)}
-                        </select>
-                      </div>
+                    <div>
+                      <label className="text-sm font-bold text-gray-700 block mb-2">Guests</label>
+                      <select
+                        className="input-field"
+                        value={bookingData.guests}
+                        onChange={(e) =>
+                          setBookingData({ ...bookingData, guests: parseInt(e.target.value, 10) })
+                        }
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                          <option key={n} value={n}>
+                            {n} {n === 1 ? 'Guest' : 'Guests'}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+                    <p className="text-xs text-muted">
+                      Next, you&apos;ll pick a seating time from this restaurant&apos;s available slots.
+                    </p>
                     <button onClick={() => setStep(2)} className="btn-primary w-full py-4 mt-4 flex items-center justify-center gap-2 group">
                       Next Step <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
                     </button>
@@ -198,27 +231,59 @@ const RestaurantDetail = () => {
                     exit={{ opacity: 0, x: -20 }}
                     className="space-y-6"
                   >
-                    <label className="text-sm font-bold text-gray-700 block">Select a Table</label>
-                    <div className="grid grid-cols-3 gap-3 max-h-[300px] overflow-y-auto p-2">
-                       {tables?.filter((t: any) => t.capacity >= bookingData.guests).map((table: any) => (
-                         <button
-                           key={table.id}
-                           onClick={() => setBookingData({...bookingData, tableId: table.id})}
-                           className={`
-                             p-4 rounded-xl border-2 flex flex-col items-center gap-1 transition-all
-                             ${bookingData.tableId === table.id ? 'border-primary bg-orange-50 text-primary shadow-md' : 'border-gray-100 hover:border-orange-200'}
-                             ${table.status !== 'AVAILABLE' ? 'opacity-50 grayscale cursor-not-allowed' : ''}
-                           `}
-                           disabled={table.status !== 'AVAILABLE'}
-                         >
-                           <Utensils size={18} />
-                           <span className="text-xs font-bold">{table.number}</span>
-                         </button>
-                       ))}
+                    <div>
+                      <label className="text-sm font-bold text-gray-700 block mb-1">Choose a time slot</label>
+                      <p className="text-xs text-muted mb-3">
+                        {new Date(bookingData.date + 'T12:00:00').toLocaleDateString('en-IN', {
+                          weekday: 'short',
+                          day: 'numeric',
+                          month: 'short'
+                        })}{' '}
+                        · {bookingData.guests} guest{bookingData.guests === 1 ? '' : 's'}
+                      </p>
                     </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[320px] overflow-y-auto pr-1">
+                      {timeSlots?.map((slot) => (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          onClick={() =>
+                            slot.available &&
+                            setBookingData({
+                              ...bookingData,
+                              slotId: slot.id,
+                              slotLabel: slot.label
+                            })
+                          }
+                          disabled={!slot.available}
+                          className={`
+                            p-4 rounded-xl border-2 flex items-center gap-3 text-left transition-all
+                            ${bookingData.slotId === slot.id ? 'border-primary bg-orange-50 text-primary shadow-md' : 'border-gray-100 hover:border-orange-200'}
+                            ${!slot.available ? 'opacity-45 cursor-not-allowed bg-stone-50' : ''}
+                          `}
+                        >
+                          <Clock size={22} className={slot.available ? 'text-primary shrink-0' : 'text-stone-300 shrink-0'} />
+                          <div>
+                            <span className="text-sm font-bold block">{slot.label}</span>
+                            {!slot.available && (
+                              <span className="text-[10px] font-semibold text-stone-400 uppercase">Fully booked</span>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    {(!timeSlots || timeSlots.length === 0) && (
+                      <p className="text-sm text-muted text-center py-4">No time slots configured for this restaurant.</p>
+                    )}
                     <div className="flex gap-4">
                       <button onClick={() => setStep(1)} className="btn-secondary flex-1 py-3">Back</button>
-                      <button onClick={() => setStep(3)} disabled={!bookingData.tableId} className="btn-primary flex-[2] py-3">Confirm Details</button>
+                      <button
+                        onClick={() => setStep(3)}
+                        disabled={!bookingData.slotId}
+                        className="btn-primary flex-[2] py-3"
+                      >
+                        Your details
+                      </button>
                     </div>
                   </motion.div>
                 )}
@@ -269,8 +334,18 @@ const RestaurantDetail = () => {
                     <div className="w-20 h-20 bg-success/10 text-success rounded-full flex items-center justify-center mx-auto">
                       <Star size={40} fill="currentColor" />
                     </div>
-                    <h3 className="text-2xl font-serif font-bold text-secondary">Table Secured!</h3>
-                    <p className="text-muted">Your reservation at {restaurant.name} is confirmed for {bookingData.date} at {bookingData.time}.</p>
+                    <h3 className="text-2xl font-serif font-bold text-secondary">You&apos;re booked!</h3>
+                    <p className="text-muted">
+                      Your reservation at {restaurant.name} is confirmed for{' '}
+                      <strong>{bookingData.date}</strong>
+                      {bookingData.slotLabel ? (
+                        <>
+                          {' '}
+                          · <strong>{bookingData.slotLabel}</strong>
+                        </>
+                      ) : null}
+                      .
+                    </p>
                     <button onClick={() => window.location.href = '/my-bookings'} className="btn-primary w-full py-4 shadow-lg shadow-orange-500/20">
                       View My Bookings
                     </button>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Edit2, Save, Users, Layers } from 'lucide-react';
+import { Plus, Trash2, Edit2, Users, Layers } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuthStore } from '../../store/authStore';
 import { toast } from 'react-hot-toast';

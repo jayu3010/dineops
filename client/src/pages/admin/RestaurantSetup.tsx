@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Clock, MapPin, Phone, Utensils, Save, Loader2 } from 'lucide-react';
+import { MapPin, Phone, Utensils, Save, Loader2 } from 'lucide-react';
 import api from '../../api/axios';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';

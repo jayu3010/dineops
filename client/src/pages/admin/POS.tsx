@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { io } from 'socket.io-client';
 import {
   ScrollText,
   CheckCircle2,
@@ -13,7 +14,9 @@ import {
   CalendarCheck,
   Printer,
   ChefHat,
-  FileText
+  FileText,
+  Globe,
+  XCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/axios';
@@ -23,6 +26,9 @@ import { motion } from 'framer-motion';
 import { sortTablesByNumber } from '../../utils/sortTables';
 
 type CartLine = { menuItemId: string; name: string; price: number; quantity: number };
+
+const SOCKET_URL =
+  import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:5000';
 
 const POS = () => {
   const { user } = useAuthStore();
@@ -38,12 +44,14 @@ const POS = () => {
   const [paymentMode, setPaymentMode] = useState<'CASH' | 'CARD' | 'UPI'>('CASH');
   const [billDiscountType, setBillDiscountType] = useState<'NONE' | 'PERCENT' | 'FIXED'>('NONE');
   const [billDiscountValue, setBillDiscountValue] = useState(0);
+  const [posNav, setPosNav] = useState<'tables' | 'online'>('tables');
+  const [selectedOnlineOrderId, setSelectedOnlineOrderId] = useState<string | null>(null);
 
   const restaurantId = user?.restaurantId;
 
   useEffect(() => {
     setCart([]);
-  }, [selectedTable?.id]);
+  }, [selectedTable?.id, selectedOnlineOrderId]);
 
   const { data: tables, isLoading: isLoadingTables } = useQuery({
     queryKey: ['tables', restaurantId],
@@ -74,29 +82,79 @@ const POS = () => {
       const res = await api.get(`/orders/table/${selectedTable.id}/active`);
       return res.data.data;
     },
-    enabled: !!selectedTable?.id
+    enabled: !!selectedTable?.id && posNav === 'tables'
   });
 
+  const { data: incomingPayload } = useQuery({
+    queryKey: ['pos-incoming', restaurantId],
+    queryFn: async () => {
+      const res = await api.get(`/orders/incoming/restaurant/${restaurantId}`);
+      return res.data.data as { awaitingApproval: any[]; billableOpen: any[] };
+    },
+    enabled: !!restaurantId,
+    refetchInterval: 25_000
+  });
+
+  const {
+    data: onlineOrderDetail,
+    isLoading: isLoadingOnlineOrder,
+    isError: isOnlineOrderError
+  } = useQuery({
+    queryKey: ['pos-online-order', selectedOnlineOrderId],
+    queryFn: async () => {
+      const res = await api.get(`/orders/pos-order/${selectedOnlineOrderId}`);
+      return res.data.data;
+    },
+    enabled: !!selectedOnlineOrderId && posNav === 'online'
+  });
+
+  const billingOrder = useMemo(() => {
+    if (posNav === 'online' && selectedOnlineOrderId) return onlineOrderDetail ?? null;
+    if (posNav === 'tables' && selectedTable) return activeOrder ?? null;
+    return null;
+  }, [posNav, selectedOnlineOrderId, onlineOrderDetail, selectedTable, activeOrder]);
+
+  const showWorkspace =
+    (posNav === 'tables' && !!selectedTable) || (posNav === 'online' && !!selectedOnlineOrderId);
+
   useEffect(() => {
-    if (!activeOrder) return;
-    const dt = activeOrder.discountType;
+    const tid = user?.tenantId;
+    if (!tid) return;
+    const socket = io(SOCKET_URL);
+    socket.on('connect', () => socket.emit('join-restaurant', tid));
+    const refresh = () => {
+      queryClient.invalidateQueries({ queryKey: ['pos-incoming'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-online-order'] });
+    };
+    socket.on('online-order-pending-approval', refresh);
+    socket.on('online-order-queue-updated', refresh);
+    return () => {
+      socket.disconnect();
+    };
+  }, [user?.tenantId, queryClient]);
+
+  useEffect(() => {
+    const o = billingOrder;
+    if (!o) return;
+    const dt = o.discountType;
     if (dt === 'PERCENT' || dt === 'FIXED') {
       setBillDiscountType(dt);
-      setBillDiscountValue(Number(activeOrder.discountValue) || 0);
+      setBillDiscountValue(Number(o.discountValue) || 0);
     } else {
       setBillDiscountType('NONE');
       setBillDiscountValue(0);
     }
-  }, [activeOrder?.id, activeOrder?.discountType, activeOrder?.discountValue]);
+  }, [billingOrder?.id, billingOrder?.discountType, billingOrder?.discountValue]);
 
   const discountMutation = useMutation({
-    mutationFn: () =>
-      api.patch(`/orders/${activeOrder!.id}/discount`, {
-        discountType: billDiscountType === 'NONE' ? 'NONE' : billDiscountType,
-        discountValue: billDiscountType === 'NONE' ? 0 : billDiscountValue
+    mutationFn: (vars: { orderId: string; discountType: string; discountValue: number }) =>
+      api.patch(`/orders/${vars.orderId}/discount`, {
+        discountType: vars.discountType === 'NONE' ? 'NONE' : vars.discountType,
+        discountValue: vars.discountType === 'NONE' ? 0 : vars.discountValue
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['order-active'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-online-order'] });
       toast.success('Discount updated');
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Could not apply discount')
@@ -108,6 +166,7 @@ const POS = () => {
       queryClient.invalidateQueries({ queryKey: ['tables'] });
       queryClient.invalidateQueries({ queryKey: ['order-active'] });
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-incoming'] });
       queryClient.invalidateQueries({ queryKey: ['kitchen-orders'] });
       toast.success('Sent to kitchen');
       setCart([]);
@@ -124,6 +183,8 @@ const POS = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tables'] });
       queryClient.invalidateQueries({ queryKey: ['order-active'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-online-order'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-incoming'] });
       queryClient.invalidateQueries({ queryKey: ['kitchen-orders'] });
       toast.success('Items added to kitchen order');
       setCart([]);
@@ -131,20 +192,54 @@ const POS = () => {
     onError: () => toast.error('Could not add items')
   });
 
+  const approveIncomingMutation = useMutation({
+    mutationFn: (orderId: string) => api.patch(`/orders/${orderId}/approve-incoming`),
+    onSuccess: (_res, orderId) => {
+      queryClient.invalidateQueries({ queryKey: ['pos-incoming'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-online-order'] });
+      queryClient.invalidateQueries({ queryKey: ['kitchen-orders'] });
+      setPosNav('online');
+      setSelectedOnlineOrderId(orderId);
+      toast.success('Accepted — sent to kitchen');
+    },
+    onError: (err: any) =>
+      toast.error(err.response?.data?.message || 'Could not accept order')
+  });
+
+  const rejectIncomingMutation = useMutation({
+    mutationFn: (orderId: string) => api.patch(`/orders/${orderId}/reject-incoming`),
+    onSuccess: (_res, orderId) => {
+      queryClient.invalidateQueries({ queryKey: ['pos-incoming'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-online-order'] });
+      if (selectedOnlineOrderId === orderId) setSelectedOnlineOrderId(null);
+      toast.success('Order declined');
+    },
+    onError: (err: any) =>
+      toast.error(err.response?.data?.message || 'Could not decline order')
+  });
+
   const payMutation = useMutation({
-    mutationFn: () =>
-      api.patch(`/orders/${activeOrder.id}/pay`, {
-        paymentMode,
-        customerName: customerName || undefined,
-        customerPhone: customerPhone || undefined
+    mutationFn: (vars: {
+      orderId: string;
+      paymentMode: string;
+      customerName?: string;
+      customerPhone?: string;
+    }) =>
+      api.patch(`/orders/${vars.orderId}/pay`, {
+        paymentMode: vars.paymentMode,
+        customerName: vars.customerName,
+        customerPhone: vars.customerPhone
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tables'] });
       queryClient.invalidateQueries({ queryKey: ['order-active'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-incoming'] });
+      queryClient.invalidateQueries({ queryKey: ['pos-online-order'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
-      toast.success('Payment recorded. Table is available.');
+      toast.success('Payment recorded.');
       setBillOpen(false);
       setSelectedTable(null);
+      setSelectedOnlineOrderId(null);
     },
     onError: () => toast.error('Payment failed')
   });
@@ -192,31 +287,44 @@ const POS = () => {
     `₹${Math.round(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const orderTypeLabel = (t: string) =>
-    ({ DINE_IN: 'Dine in', TAKEAWAY: 'Takeaway', DELIVERY: 'Delivery' } as Record<string, string>)[t] || t;
+    ({
+      DINE_IN: 'Dine in',
+      TAKEAWAY: 'Takeaway',
+      DELIVERY: 'Delivery',
+      OWN_WEBSITE: 'Web order',
+      SWIGGY: 'Swiggy',
+      ZOMATO: 'Zomato'
+    } as Record<string, string>)[t] || t;
 
   const handleSendToKitchen = () => {
     if (cart.length === 0) return toast.error('Add items to the cart first');
-    if (!restaurantId || !selectedTable?.id) return;
-
-    const payload = {
-      restaurantId,
-      tableId: selectedTable.id,
-      items: cart.map((i) => ({
-        menuItemId: i.menuItemId,
-        name: i.name,
-        price: i.price,
-        quantity: i.quantity
-      })),
-      orderType,
-      customerName: customerName || undefined,
-      customerPhone: customerPhone || undefined
-    };
-
-    if (activeOrder?.id) {
-      addItemsMutation.mutate({ orderId: activeOrder.id, items: cart });
-    } else {
-      createOrderMutation.mutate(payload);
+    if (posNav === 'tables') {
+      if (!restaurantId || !selectedTable?.id) return;
+      const payload = {
+        restaurantId,
+        tableId: selectedTable.id,
+        items: cart.map((i) => ({
+          menuItemId: i.menuItemId,
+          name: i.name,
+          price: i.price,
+          quantity: i.quantity
+        })),
+        orderType,
+        customerName: customerName || undefined,
+        customerPhone: customerPhone || undefined
+      };
+      if (activeOrder?.id) {
+        addItemsMutation.mutate({ orderId: activeOrder.id, items: cart });
+      } else {
+        createOrderMutation.mutate(payload);
+      }
+      return;
     }
+    if (!billingOrder?.id) return toast.error('Select an online order');
+    if (billingOrder.status === 'AWAITING_APPROVAL') {
+      return toast.error('Accept the order first — then you can add items');
+    }
+    addItemsMutation.mutate({ orderId: billingOrder.id, items: cart });
   };
 
   const receiptDateTimeStr = (d: Date) =>
@@ -257,27 +365,31 @@ const POS = () => {
     return bars.join('');
   };
 
+  const tableOrOnlineLabel = () =>
+    posNav === 'tables' && selectedTable ? String(selectedTable.tableNumber) : 'Online';
+
   const handlePrint = () => {
-    if (!activeOrder || !selectedTable) return;
+    if (!billingOrder) return;
+    if (posNav === 'tables' && !selectedTable) return;
     const w = window.open('', '_blank');
     if (!w) {
       toast.error('Allow pop-ups to print the bill');
       return;
     }
-    const outlet = activeOrder.restaurant || user?.restaurant;
+    const outlet = billingOrder.restaurant || user?.restaurant;
     const bizName = escapeHtml(outlet?.name || 'Restaurant');
     const addrLine = [outlet?.address, outlet?.city].filter(Boolean).join(', ');
     const gstin = outlet?.gstin ? escapeHtml(String(outlet.gstin)) : '';
     const fssai = outlet?.fssai ? escapeHtml(String(outlet.fssai)) : '';
-    const custName = customerName || activeOrder.customerName || '';
-    const custPhone = customerPhone || activeOrder.customerPhone || '';
-    const da = Number(activeOrder.discountAmount) || 0;
-    const preDisc = Math.round(Number(activeOrder.subtotal) + Number(activeOrder.gstAmount));
+    const custName = customerName || billingOrder.customerName || '';
+    const custPhone = customerPhone || billingOrder.customerPhone || '';
+    const da = Number(billingOrder.discountAmount) || 0;
+    const preDisc = Math.round(Number(billingOrder.subtotal) + Number(billingOrder.gstAmount));
     let discDetail = '';
     if (da > 0) {
-      if (activeOrder.discountType === 'PERCENT' && Number(activeOrder.discountValue) > 0) {
-        discDetail = `<div class="sub">DISC. ${Number(activeOrder.discountValue)}% @ ₹${preDisc}</div>`;
-      } else if (activeOrder.discountType === 'FIXED') {
+      if (billingOrder.discountType === 'PERCENT' && Number(billingOrder.discountValue) > 0) {
+        discDetail = `<div class="sub">DISC. ${Number(billingOrder.discountValue)}% @ ₹${preDisc}</div>`;
+      } else if (billingOrder.discountType === 'FIXED') {
         discDetail = `<div class="sub">DISC. (flat off) @ ₹${preDisc}</div>`;
       }
     }
@@ -286,9 +398,9 @@ const POS = () => {
         ? `<div class="row"><span>DISCOUNT</span><span>−₹${Math.round(da).toLocaleString('en-IN')}</span></div>${discDetail}`
         : '';
     const cashier = escapeHtml(user?.name || 'Staff');
-    const when = receiptDateTimeStr(new Date(activeOrder.createdAt));
-    const itemsHtml = buildThermalItemHtml(activeOrder);
-    const barcodeSpans = buildBarcodeStyle(activeOrder.id);
+    const when = receiptDateTimeStr(new Date(billingOrder.createdAt));
+    const itemsHtml = buildThermalItemHtml(billingOrder);
+    const barcodeSpans = buildBarcodeStyle(billingOrder.id);
 
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Receipt</title>
       <style>
@@ -353,25 +465,25 @@ const POS = () => {
       <div class="center title">*** TAX INVOICE ***</div>
       <div class="hr"></div>
       <div class="row"><span>CASHIER ${cashier}</span><span>${escapeHtml(when)}</span></div>
-      <div class="row"><span>TABLE ${escapeHtml(String(selectedTable.tableNumber))}</span><span>${escapeHtml(orderTypeLabel(activeOrder.orderType || 'DINE_IN'))}</span></div>
-      <div class="row small"><span>ORDER</span><span>${escapeHtml(activeOrder.id.slice(-10))}</span></div>
+      <div class="row"><span>TABLE ${escapeHtml(tableOrOnlineLabel())}</span><span>${escapeHtml(orderTypeLabel(billingOrder.orderType || 'DINE_IN'))}</span></div>
+      <div class="row small"><span>ORDER</span><span>${escapeHtml(billingOrder.id.slice(-10))}</span></div>
       ${custName ? `<div class="row small"><span>CUST</span><span>${escapeHtml(custName)}</span></div>` : ''}
       ${custPhone ? `<div class="row small"><span>PHONE</span><span>${escapeHtml(custPhone)}</span></div>` : ''}
       <div class="hr"></div>
       <div class="items-head">ITEM</div>
       ${itemsHtml}
       <div class="hr"></div>
-      <div class="row"><span>SUBTOTAL</span><span>₹${Number(activeOrder.subtotal).toFixed(2)}</span></div>
-      <div class="row"><span>GST (5%)</span><span>₹${Number(activeOrder.gstAmount).toFixed(2)}</span></div>
+      <div class="row"><span>SUBTOTAL</span><span>₹${Number(billingOrder.subtotal).toFixed(2)}</span></div>
+      <div class="row"><span>GST (5%)</span><span>₹${Number(billingOrder.gstAmount).toFixed(2)}</span></div>
       ${discRow}
-      <div class="row total"><span>TOTAL AMOUNT</span><span>₹${Math.round(activeOrder.totalAmount || 0).toLocaleString('en-IN')}</span></div>
+      <div class="row total"><span>TOTAL AMOUNT</span><span>₹${Math.round(billingOrder.totalAmount || 0).toLocaleString('en-IN')}</span></div>
       <div class="hr"></div>
       <div class="row"><span>PAY MODE</span><span>${escapeHtml(paymentMode)}</span></div>
-      <div class="row"><span>AMOUNT DUE</span><span>₹${Math.round(activeOrder.totalAmount || 0).toLocaleString('en-IN')}</span></div>
+      <div class="row"><span>AMOUNT DUE</span><span>₹${Math.round(billingOrder.totalAmount || 0).toLocaleString('en-IN')}</span></div>
       <div class="hr"></div>
       <div class="footer">THANK YOU FOR DINING WITH US!</div>
       <div class="barcode" aria-hidden="true">${barcodeSpans}</div>
-      <div class="center small" style="margin-top:2px">${escapeHtml(activeOrder.id.slice(-12))}</div>
+      <div class="center small" style="margin-top:2px">${escapeHtml(billingOrder.id.slice(-12))}</div>
       </body></html>`);
     w.document.close();
     setTimeout(() => {
@@ -381,15 +493,16 @@ const POS = () => {
   };
 
   const handlePrintKOT = () => {
-    if (!activeOrder || !selectedTable) return;
+    if (!billingOrder) return;
+    if (posNav === 'tables' && !selectedTable) return;
     const w = window.open('', '_blank');
     if (!w) {
       toast.error('Allow pop-ups to print KOT');
       return;
     }
-    const outlet = activeOrder.restaurant || user?.restaurant;
+    const outlet = billingOrder.restaurant || user?.restaurant;
     const kotRows =
-      activeOrder.items
+      billingOrder.items
         ?.map(
           (it: any) =>
             `<tr><td>${escapeHtml(it.name)}</td><td style="text-align:right;font-weight:700">${it.quantity}</td></tr>`
@@ -401,9 +514,9 @@ const POS = () => {
       h1{font-size:18px;margin:0 0 8px} .muted{color:#78716c;font-size:13px} table{width:100%;border-collapse:collapse;margin:12px 0;font-size:15px}
       th{text-align:left;border-bottom:2px solid #1c1917;padding:6px 0} td{padding:8px 0;border-bottom:1px solid #e7e5e4}</style></head><body>
       <h1>KOT — ${kotTitle}</h1>
-      <p class="muted">Table <strong>${escapeHtml(String(selectedTable.tableNumber))}</strong> · ${escapeHtml(orderTypeLabel(activeOrder.orderType || 'DINE_IN'))}</p>
-      <p class="muted">${new Date(activeOrder.createdAt).toLocaleString('en-IN')}</p>
-      <p class="muted">Order #${escapeHtml(activeOrder.id.slice(-8))}</p>
+      <p class="muted">Table <strong>${escapeHtml(tableOrOnlineLabel())}</strong> · ${escapeHtml(orderTypeLabel(billingOrder.orderType || 'DINE_IN'))}</p>
+      <p class="muted">${new Date(billingOrder.createdAt).toLocaleString('en-IN')}</p>
+      <p class="muted">Order #${escapeHtml(billingOrder.id.slice(-8))}</p>
       <table><thead><tr><th>Item</th><th style="text-align:right">Qty</th></tr></thead><tbody>${kotRows}</tbody></table>
       </body></html>`);
     w.document.close();
@@ -423,6 +536,8 @@ const POS = () => {
 
   const statusBadge = (status: string) => {
     const map: Record<string, string> = {
+      AWAITING_APPROVAL: 'bg-orange-100 text-orange-950 border-orange-400',
+      REJECTED: 'bg-red-100 text-red-900 border-red-300',
       PENDING: 'bg-amber-100 text-amber-900 border-amber-300',
       PREPARING: 'bg-blue-100 text-blue-900 border-blue-300',
       READY: 'bg-emerald-100 text-emerald-900 border-emerald-300',
@@ -431,11 +546,14 @@ const POS = () => {
     return map[status] || 'bg-stone-100 text-stone-800';
   };
 
-  const billOutlet = billOpen && activeOrder ? activeOrder.restaurant || user?.restaurant : null;
+  const billOutlet = billOpen && billingOrder ? billingOrder.restaurant || user?.restaurant : null;
   const preDiscPreview =
-    billOpen && activeOrder
-      ? Math.round(Number(activeOrder.subtotal) + Number(activeOrder.gstAmount))
+    billOpen && billingOrder
+      ? Math.round(Number(billingOrder.subtotal) + Number(billingOrder.gstAmount))
       : 0;
+
+  const awaitingList = incomingPayload?.awaitingApproval ?? [];
+  const billableList = incomingPayload?.billableOpen ?? [];
 
   if (isLoadingTables || isLoadingMenu) {
     return (
@@ -448,28 +566,65 @@ const POS = () => {
   return (
     <div className="flex h-[calc(100vh-80px)] bg-stone-50 overflow-hidden">
       <div className="flex flex-1 w-full h-full min-h-0">
-        {/* Tables */}
-        <div className="w-1/3 border-r border-stone-200 p-6 overflow-y-auto">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-secondary flex items-center gap-2">
-              <LayoutGrid size={20} className="text-primary" /> Table overview
-            </h2>
+        <div className="w-1/3 border-r border-stone-200 p-6 overflow-y-auto flex flex-col min-h-0">
+          <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
+            <div className="flex rounded-xl bg-stone-200/80 p-1 gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPosNav('tables');
+                  setSelectedOnlineOrderId(null);
+                }}
+                className={`px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide transition-all ${
+                  posNav === 'tables' ? 'bg-white text-secondary shadow-sm' : 'text-stone-600'
+                }`}
+              >
+                Tables
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPosNav('online');
+                  setSelectedTable(null);
+                }}
+                className={`px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide transition-all inline-flex items-center gap-1.5 ${
+                  posNav === 'online' ? 'bg-white text-secondary shadow-sm' : 'text-stone-600'
+                }`}
+              >
+                <Globe size={14} aria-hidden />
+                Online
+                {awaitingList.length > 0 ? (
+                  <span className="bg-orange-500 text-white text-[10px] font-black min-w-[1.25rem] h-5 px-1 rounded-full inline-flex items-center justify-center">
+                    {awaitingList.length}
+                  </span>
+                ) : null}
+              </button>
+            </div>
             <Link
               to="/kitchen"
-              className="text-xs font-bold uppercase tracking-widest text-primary flex items-center gap-1 hover:underline"
+              className="text-xs font-bold uppercase tracking-widest text-primary flex items-center gap-1 hover:underline shrink-0"
             >
               <ChefHat size={14} /> Kitchen
             </Link>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {tablesSorted.map((table: any) => (
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                key={table.id}
-                onClick={() => setSelectedTable(table)}
-                className={`
+          {posNav === 'tables' ? (
+            <>
+              <h2 className="text-lg font-bold text-secondary mb-4 flex items-center gap-2">
+                <LayoutGrid size={18} className="text-primary" /> Floor
+              </h2>
+              <div className="grid grid-cols-2 gap-4">
+                {tablesSorted.map((table: any) => (
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    key={table.id}
+                    onClick={() => {
+                      setPosNav('tables');
+                      setSelectedOnlineOrderId(null);
+                      setSelectedTable(table);
+                    }}
+                    className={`
                 p-4 rounded-3xl border-2 transition-all flex flex-col items-center justify-center gap-2 relative
                 ${
                   selectedTable?.id === table.id
@@ -477,9 +632,9 @@ const POS = () => {
                     : 'border-white bg-white shadow-sm hover:border-stone-200'
                 }
               `}
-              >
-                <div
-                  className={`
+                  >
+                    <div
+                      className={`
                 w-12 h-12 rounded-full flex items-center justify-center font-black text-lg
                 ${
                   table.status === 'AVAILABLE'
@@ -489,37 +644,137 @@ const POS = () => {
                       : 'bg-orange-100 text-orange-600'
                 }
               `}
-                >
-                  {table.tableNumber}
-                </div>
-                <div className="text-center">
-                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block">
-                    Cap: {table.capacity}
-                  </span>
-                  <span
-                    className={`text-[9px] font-black uppercase tracking-widest ${
-                      table.status === 'AVAILABLE'
-                        ? 'text-green-500'
-                        : table.status === 'OCCUPIED'
-                          ? 'text-red-500'
-                          : 'text-orange-500'
-                    }`}
-                  >
-                    {table.status}
-                  </span>
-                </div>
-                {table.status === 'RESERVED' && (
-                  <div className="absolute top-2 right-2 text-orange-500">
-                    <CalendarCheck size={14} />
-                  </div>
+                    >
+                      {table.tableNumber}
+                    </div>
+                    <div className="text-center">
+                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block">
+                        Cap: {table.capacity}
+                      </span>
+                      <span
+                        className={`text-[9px] font-black uppercase tracking-widest ${
+                          table.status === 'AVAILABLE'
+                            ? 'text-green-500'
+                            : table.status === 'OCCUPIED'
+                              ? 'text-red-500'
+                              : 'text-orange-500'
+                        }`}
+                      >
+                        {table.status}
+                      </span>
+                    </div>
+                    {table.status === 'RESERVED' && (
+                      <div className="absolute top-2 right-2 text-orange-500">
+                        <CalendarCheck size={14} />
+                      </div>
+                    )}
+                  </motion.button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-6 flex-1 min-h-0 overflow-y-auto pb-4">
+              {awaitingList.length > 0 ? (
+                <section>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-orange-600 mb-1">
+                    Needs your OK
+                  </h3>
+                  <p className="text-[11px] text-stone-500 mb-3 leading-snug">
+                    Web & partner orders do not go to the kitchen or use stock until you accept here.
+                  </p>
+                  <ul className="space-y-3">
+                    {awaitingList.map((o: any) => (
+                      <li
+                        key={o.id}
+                        className={`rounded-2xl border-2 p-3 bg-white ${
+                          selectedOnlineOrderId === o.id ? 'border-primary shadow-md' : 'border-stone-100'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className="w-full text-left"
+                          onClick={() => setSelectedOnlineOrderId(o.id)}
+                        >
+                          <p className="text-[10px] font-mono text-stone-500">#{o.id.slice(-6)}</p>
+                          <p className="font-bold text-secondary">{orderTypeLabel(o.orderType)}</p>
+                          <p className="text-xs text-stone-500 mt-0.5">
+                            {o.items?.length ?? 0} lines · ₹{Math.round(Number(o.totalAmount) || 0)}
+                          </p>
+                          {(o.customerName || o.customerPhone) && (
+                            <p className="text-[10px] text-stone-400 mt-1 truncate">
+                              {[o.customerName, o.customerPhone].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+                        </button>
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            type="button"
+                            disabled={approveIncomingMutation.isPending}
+                            onClick={() => approveIncomingMutation.mutate(o.id)}
+                            className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            disabled={rejectIncomingMutation.isPending}
+                            onClick={() => rejectIncomingMutation.mutate(o.id)}
+                            className="flex-1 py-2.5 rounded-xl border-2 border-red-200 text-red-700 text-[10px] font-black uppercase tracking-wide inline-flex items-center justify-center gap-1 disabled:opacity-50"
+                          >
+                            <XCircle size={14} /> Decline
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+              <section>
+                <h3 className="text-xs font-black uppercase tracking-widest text-stone-500 mb-2">
+                  Open tickets — bill & kitchen
+                </h3>
+                {billableList.length === 0 && awaitingList.length === 0 ? (
+                  <p className="text-sm text-stone-400">No online orders right now.</p>
+                ) : billableList.length === 0 ? (
+                  <p className="text-sm text-stone-400">Accept an order above to open a kitchen ticket.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {billableList.map((o: any) => (
+                      <li key={o.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOnlineOrderId(o.id)}
+                          className={`w-full text-left rounded-2xl border-2 p-3 transition-all ${
+                            selectedOnlineOrderId === o.id
+                              ? 'border-primary bg-orange-50/60'
+                              : 'border-white bg-white shadow-sm hover:border-stone-200'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-2">
+                            <span
+                              className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${statusBadge(o.status)}`}
+                            >
+                              {o.status}
+                            </span>
+                            <span className="text-xs text-stone-400 font-mono">#{o.id.slice(-6)}</span>
+                          </div>
+                          <p className="font-bold text-secondary mt-1">{orderTypeLabel(o.orderType)}</p>
+                          <p className="text-xs text-stone-500">
+                            ₹{Math.round(Number(o.totalAmount) || 0)} ·{' '}
+                            {new Date(o.createdAt).toLocaleTimeString('en-IN')}
+                          </p>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </motion.button>
-            ))}
-          </div>
+              </section>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 flex flex-col min-w-0">
-          {selectedTable ? (
+          {showWorkspace ? (
             <div className="flex-1 flex overflow-hidden min-h-0">
               {/* Menu */}
               <div className="flex-1 p-6 overflow-y-auto min-w-0">
@@ -597,52 +852,68 @@ const POS = () => {
               <div className="w-80 flex-shrink-0 bg-white border-l border-stone-200 flex flex-col min-h-0">
                 <div className="p-6 border-b border-stone-100 flex-shrink-0">
                   <h3 className="font-bold text-secondary flex items-center gap-2">
-                    <Receipt size={18} className="text-primary" /> Table {selectedTable.tableNumber}
+                    <Receipt size={18} className="text-primary" />
+                    {posNav === 'tables' && selectedTable ? (
+                      <>Table {selectedTable.tableNumber}</>
+                    ) : (
+                      <>
+                        Online · {billingOrder ? orderTypeLabel(billingOrder.orderType || 'DINE_IN') : '…'}
+                      </>
+                    )}
                   </h3>
-                  <div className="flex gap-2 mt-4">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateTableStatusMutation.mutate({ id: selectedTable.id, status: 'RESERVED' })
-                      }
-                      className="flex-1 py-1 text-[9px] font-black uppercase tracking-widest bg-orange-50 text-orange-600 rounded-lg border border-orange-100"
-                    >
-                      Mark reserved
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm('Reset this table to AVAILABLE?')) {
-                          updateTableStatusMutation.mutate({ id: selectedTable.id, status: 'AVAILABLE' });
+                  {selectedTable ? (
+                    <div className="flex gap-2 mt-4">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateTableStatusMutation.mutate({ id: selectedTable.id, status: 'RESERVED' })
                         }
-                      }}
-                      className="flex-1 py-1 text-[9px] font-black uppercase tracking-widest bg-stone-50 text-stone-400 rounded-lg border border-stone-100 hover:bg-stone-100"
-                    >
-                      Reset status
-                    </button>
-                  </div>
+                        className="flex-1 py-1 text-[9px] font-black uppercase tracking-widest bg-orange-50 text-orange-600 rounded-lg border border-orange-100"
+                      >
+                        Mark reserved
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm('Reset this table to AVAILABLE?')) {
+                            updateTableStatusMutation.mutate({ id: selectedTable.id, status: 'AVAILABLE' });
+                          }
+                        }}
+                        className="flex-1 py-1 text-[9px] font-black uppercase tracking-widest bg-stone-50 text-stone-400 rounded-lg border border-stone-100 hover:bg-stone-100"
+                      >
+                        Reset status
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
-                {isLoadingActive ? (
+                {(posNav === 'tables' && isLoadingActive) ||
+                (posNav === 'online' && selectedOnlineOrderId && isLoadingOnlineOrder) ? (
                   <div className="p-6 flex justify-center">
                     <Loader2 className="animate-spin text-primary" />
                   </div>
-                ) : activeOrder ? (
+                ) : billingOrder ? (
                   <div className="px-4 py-3 bg-stone-50 border-b border-stone-100 space-y-2 flex-shrink-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-bold uppercase text-stone-500">Kitchen status</span>
                       <span
-                        className={`text-[10px] font-black uppercase px-2 py-1 rounded-full border ${statusBadge(activeOrder.status)}`}
+                        className={`text-[10px] font-black uppercase px-2 py-1 rounded-full border ${statusBadge(billingOrder.status)}`}
                       >
-                        {activeOrder.status}
+                        {billingOrder.status}
                       </span>
                     </div>
+                    {billingOrder.status === 'AWAITING_APPROVAL' ? (
+                      <p className="text-[11px] text-orange-800 font-semibold leading-snug">
+                        Not sent to kitchen yet. Accept from the list on the left (or use the buttons there),
+                        then you can bill and add items.
+                      </p>
+                    ) : null}
                     <p className="text-[10px] text-stone-500">
-                      Order #{activeOrder.id.slice(-6)} · Placed{' '}
-                      {new Date(activeOrder.createdAt).toLocaleTimeString('en-IN')}
+                      Order #{billingOrder.id.slice(-6)} · Placed{' '}
+                      {new Date(billingOrder.createdAt).toLocaleTimeString('en-IN')}
                     </p>
                     <div className="max-h-32 overflow-y-auto space-y-1 text-xs">
-                      {activeOrder.items?.map((it: any) => (
+                      {billingOrder.items?.map((it: any) => (
                         <div key={it.id} className="flex justify-between gap-2">
                           <span className="truncate font-medium">{it.name}</span>
                           <span className="tabular-nums text-stone-600">
@@ -653,26 +924,36 @@ const POS = () => {
                     </div>
                     <div className="pt-2 border-t border-stone-200 flex justify-between text-sm font-black">
                       <span>Order total</span>
-                      <span className="text-primary">{fmtRupees(activeOrder.totalAmount || 0)}</span>
+                      <span className="text-primary">{fmtRupees(billingOrder.totalAmount || 0)}</span>
                     </div>
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       <button
                         type="button"
+                        disabled={billingOrder.status === 'AWAITING_APPROVAL'}
                         onClick={handlePrintKOT}
-                        className="btn-secondary py-3 text-xs font-bold flex items-center justify-center gap-1"
+                        className="btn-secondary py-3 text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-40"
                       >
                         <Printer size={16} /> Print KOT
                       </button>
                       <button
                         type="button"
+                        disabled={billingOrder.status === 'AWAITING_APPROVAL'}
                         onClick={() => setBillOpen(true)}
-                        className="btn-primary py-3 text-xs font-bold flex items-center justify-center gap-1"
+                        className="btn-primary py-3 text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-40"
                       >
                         <FileText size={16} /> Bill
                       </button>
                     </div>
                   </div>
-                ) : null}
+                ) : posNav === 'online' && selectedOnlineOrderId && isOnlineOrderError ? (
+                  <div className="px-4 py-3 text-xs text-red-600 border-b border-stone-100">
+                    Could not load this order. It may have been removed.
+                  </div>
+                ) : (
+                  <div className="px-4 py-3 text-xs text-stone-400 border-b border-stone-100">
+                    {posNav === 'tables' ? 'No open order on this table.' : 'Select an order from the list.'}
+                  </div>
+                )}
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
@@ -772,7 +1053,12 @@ const POS = () => {
 
                   <button
                     type="button"
-                    disabled={cart.length === 0 || createOrderMutation.isPending || addItemsMutation.isPending}
+                    disabled={
+                      cart.length === 0 ||
+                      createOrderMutation.isPending ||
+                      addItemsMutation.isPending ||
+                      (posNav === 'online' && billingOrder?.status === 'AWAITING_APPROVAL')
+                    }
                     onClick={handleSendToKitchen}
                     className="w-full btn-primary py-4 text-lg flex items-center justify-center gap-2 shine disabled:opacity-50"
                   >
@@ -782,13 +1068,23 @@ const POS = () => {
               </div>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-stone-300">
+            <div className="flex-1 flex flex-col items-center justify-center text-stone-300 px-6">
               <div className="p-10 rounded-full bg-white shadow-xl mb-6">
-                <LayoutGrid size={80} className="opacity-20" />
+                {posNav === 'online' ? (
+                  <Globe size={80} className="opacity-20 text-primary" />
+                ) : (
+                  <LayoutGrid size={80} className="opacity-20" />
+                )}
               </div>
-              <p className="text-xl font-serif font-bold text-secondary">Select a table to start</p>
-              <p className="text-sm mt-1 max-w-xs text-center text-stone-400">
-                Send orders to the kitchen, track status, and generate bills.
+              <p className="text-xl font-serif font-bold text-secondary text-center">
+                {posNav === 'online'
+                  ? 'Pick an online order on the left'
+                  : 'Select a table to start'}
+              </p>
+              <p className="text-sm mt-1 max-w-md text-center text-stone-400">
+                {posNav === 'online'
+                  ? 'Accept new web or partner orders before they go to the kitchen, then bill and take payment here.'
+                  : 'Send orders to the kitchen, track status, and generate bills. Use Online for website & delivery tickets.'}
               </p>
             </div>
           )}
@@ -796,7 +1092,7 @@ const POS = () => {
       </div>
 
       {/* Bill modal — wide layout: thermal preview + actions (avoids single tall scrollbar) */}
-      {billOpen && activeOrder && (
+      {billOpen && billingOrder && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50">
             <div className="min-h-full flex items-start justify-center p-3 sm:p-6">
               <div className="my-auto w-full max-w-4xl rounded-2xl shadow-2xl border border-orange-100/80 bg-[#FFFBF7] flex flex-col max-h-[min(95dvh,920px)] overflow-hidden">
@@ -804,7 +1100,7 @@ const POS = () => {
                   <div>
                     <h3 className="font-serif text-lg sm:text-xl font-bold text-secondary leading-tight">Bill</h3>
                     <p className="text-[10px] sm:text-xs text-stone-500 mt-0.5">
-                      Preview matches thermal print · {receiptDateTimeStr(new Date(activeOrder.createdAt))}
+                      Preview matches thermal print · {receiptDateTimeStr(new Date(billingOrder.createdAt))}
                     </p>
                   </div>
                   <button
@@ -840,21 +1136,21 @@ const POS = () => {
                       <div className="flex justify-between gap-2 text-[10px]">
                         <span className="truncate">CASHIER {user?.name || 'Staff'}</span>
                         <span className="flex-shrink-0 whitespace-nowrap">
-                          {receiptDateTimeStr(new Date(activeOrder.createdAt))}
+                          {receiptDateTimeStr(new Date(billingOrder.createdAt))}
                         </span>
                       </div>
                       <div className="flex justify-between gap-2 text-[10px] mt-0.5">
-                        <span>TABLE {selectedTable?.tableNumber}</span>
-                        <span>{orderTypeLabel(activeOrder.orderType || 'DINE_IN')}</span>
+                        <span>TABLE {tableOrOnlineLabel()}</span>
+                        <span>{orderTypeLabel(billingOrder.orderType || 'DINE_IN')}</span>
                       </div>
                       <div className="flex justify-between text-[10px] text-stone-600 mt-0.5">
                         <span>ORDER</span>
-                        <span className="font-mono">{activeOrder.id.slice(-10)}</span>
+                        <span className="font-mono">{billingOrder.id.slice(-10)}</span>
                       </div>
                       <div className="border-t border-dashed border-stone-800 my-2 opacity-80" />
                       <p className="font-bold text-[10px] tracking-wider mb-1">ITEM</p>
                       <div className="space-y-2">
-                        {activeOrder.items?.map((it: any) => (
+                        {billingOrder.items?.map((it: any) => (
                           <div key={it.id}>
                             <div className="flex justify-between gap-2">
                               <span className="min-w-0 break-words pr-1">{it.name}</span>
@@ -873,27 +1169,27 @@ const POS = () => {
                       <div className="border-t border-dashed border-stone-800 my-2 opacity-80" />
                       <div className="flex justify-between">
                         <span>SUBTOTAL</span>
-                        <span className="tabular-nums">₹{Number(activeOrder.subtotal).toFixed(2)}</span>
+                        <span className="tabular-nums">₹{Number(billingOrder.subtotal).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>GST (5%)</span>
-                        <span className="tabular-nums">₹{Number(activeOrder.gstAmount).toFixed(2)}</span>
+                        <span className="tabular-nums">₹{Number(billingOrder.gstAmount).toFixed(2)}</span>
                       </div>
-                      {Number(activeOrder.discountAmount) > 0 ? (
+                      {Number(billingOrder.discountAmount) > 0 ? (
                         <>
                           <div className="flex justify-between text-emerald-900">
                             <span>DISCOUNT</span>
                             <span className="tabular-nums">
-                              −₹{Math.round(Number(activeOrder.discountAmount))}
+                              −₹{Math.round(Number(billingOrder.discountAmount))}
                             </span>
                           </div>
-                          {activeOrder.discountType === 'PERCENT' &&
-                          Number(activeOrder.discountValue) > 0 ? (
+                          {billingOrder.discountType === 'PERCENT' &&
+                          Number(billingOrder.discountValue) > 0 ? (
                             <p className="pl-2.5 text-[10px] text-stone-600">
-                              DISC. {Number(activeOrder.discountValue)}% @ ₹{preDiscPreview}
+                              DISC. {Number(billingOrder.discountValue)}% @ ₹{preDiscPreview}
                             </p>
                           ) : null}
-                          {activeOrder.discountType === 'FIXED' ? (
+                          {billingOrder.discountType === 'FIXED' ? (
                             <p className="pl-2.5 text-[10px] text-stone-600">
                               DISC. (flat) @ ₹{preDiscPreview}
                             </p>
@@ -903,7 +1199,7 @@ const POS = () => {
                       <div className="flex justify-between font-extrabold text-xs mt-2 pt-2 border-t border-dashed border-stone-800">
                         <span>TOTAL AMOUNT</span>
                         <span className="tabular-nums text-primary">
-                          ₹{Math.round(activeOrder.totalAmount || 0).toLocaleString('en-IN')}
+                          ₹{Math.round(billingOrder.totalAmount || 0).toLocaleString('en-IN')}
                         </span>
                       </div>
                       <div className="border-t border-dashed border-stone-800 my-2 opacity-80" />
@@ -914,7 +1210,7 @@ const POS = () => {
                       <div className="flex justify-between text-[10px]">
                         <span>AMOUNT DUE</span>
                         <span className="tabular-nums font-semibold">
-                          ₹{Math.round(activeOrder.totalAmount || 0).toLocaleString('en-IN')}
+                          ₹{Math.round(billingOrder.totalAmount || 0).toLocaleString('en-IN')}
                         </span>
                       </div>
                       <p className="text-center font-bold text-[10px] tracking-widest mt-4">
@@ -936,7 +1232,7 @@ const POS = () => {
                         ))}
                       </div>
                       <p className="text-center text-[9px] text-stone-500 font-mono mt-1">
-                        {activeOrder.id.slice(-12)}
+                        {billingOrder.id.slice(-12)}
                       </p>
                     </div>
                   </div>
@@ -968,8 +1264,15 @@ const POS = () => {
                         />
                         <button
                           type="button"
-                          disabled={discountMutation.isPending || !activeOrder?.id}
-                          onClick={() => discountMutation.mutate()}
+                          disabled={discountMutation.isPending || !billingOrder?.id}
+                          onClick={() =>
+                            billingOrder?.id &&
+                            discountMutation.mutate({
+                              orderId: billingOrder.id,
+                              discountType: billDiscountType,
+                              discountValue: billDiscountValue
+                            })
+                          }
                           className="px-3 py-2 rounded-lg bg-stone-800 text-white text-xs font-bold hover:bg-stone-900 disabled:opacity-50 shrink-0"
                         >
                           Apply
@@ -1034,8 +1337,16 @@ const POS = () => {
                       </button>
                       <button
                         type="button"
-                        disabled={payMutation.isPending}
-                        onClick={() => payMutation.mutate()}
+                        disabled={payMutation.isPending || !billingOrder?.id}
+                        onClick={() =>
+                          billingOrder?.id &&
+                          payMutation.mutate({
+                            orderId: billingOrder.id,
+                            paymentMode,
+                            customerName: customerName || undefined,
+                            customerPhone: customerPhone || undefined
+                          })
+                        }
                         className="flex-1 btn-primary py-3 text-sm font-bold"
                       >
                         {payMutation.isPending ? 'Saving…' : 'Mark as paid'}

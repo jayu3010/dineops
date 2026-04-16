@@ -14,6 +14,7 @@ import RegisterPage from './pages/auth/RegisterPage';
 import LandingPage from './pages/user/LandingPage';
 import RestaurantDetail from './pages/user/RestaurantDetail';
 import ExplorePage from './pages/user/ExplorePage';
+import OnlineOrderPage from './pages/user/OnlineOrderPage';
 import MyBookings from './pages/user/MyBookings';
 import SuperAdminDashboard from './pages/superadmin/SuperAdminDashboard';
 import RestaurantSetup from './pages/admin/RestaurantSetup';
@@ -26,6 +27,7 @@ import AnalyticsPage from './pages/admin/AnalyticsPage';
 import OrderReportsPage from './pages/admin/OrderReportsPage';
 import DayClosePage from './pages/admin/DayClosePage';
 import StaffManagement from './pages/admin/StaffManagement';
+import InventoryManagement from './pages/admin/InventoryManagement';
 import PlanManagement from './pages/superadmin/PlanManagement';
 import UserManagement from './pages/superadmin/UserManagement';
 
@@ -70,6 +72,7 @@ const App = () => {
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/explore" element={<ExplorePage />} />
             <Route path="/restaurant/:tenantId" element={<RestaurantDetail />} />
+            <Route path="/order/:tenantId" element={<OnlineOrderPage />} />
           </Route>
 
           {/* User Protected Routes with Navbar */}
@@ -99,6 +102,7 @@ const App = () => {
               <Route path="/admin/profile" element={<RestaurantSetup />} />
               <Route path="/admin/tables" element={<TableManagement />} />
               <Route path="/admin/menu" element={<MenuManagement />} />
+              <Route path="/admin/inventory" element={<InventoryManagement />} />
               <Route path="/admin/pos" element={<POS />} />
               <Route path="/admin/reports" element={<OrderReportsPage />} />
               <Route path="/admin/day-close" element={<DayClosePage />} />

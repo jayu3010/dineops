@@ -1,5 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { assertRestaurantAccess } = require('../utils/restaurantScope');
+const { deductIngredientsForOrderLines } = require('../utils/inventoryDeduction');
+const { sendLowStockAlert } = require('../utils/lowStockEmail');
 const prisma = new PrismaClient();
 
 const GST_RATE = 0.05;
@@ -72,6 +74,143 @@ function emitIo(req, event, payload) {
   } catch (_) {}
 }
 
+function mapIncomingPosItems(items) {
+  return items.map((item) => ({
+    menuItemId: item.menuItemId,
+    name: item.name || 'Item',
+    quantity: parseInt(item.quantity, 10) || 1,
+    price: parseFloat(item.price) || 0
+  }));
+}
+
+/** Resolve menu items against DB (correct price, availability, restaurant scope). */
+async function resolveLineItemsFromDb(restaurantId, items) {
+  const lineItems = [];
+  for (const item of items) {
+    const menuItemId = item.menuItemId;
+    const qty = parseInt(item.quantity, 10) || 1;
+    if (!menuItemId || qty < 1) {
+      return { error: 'Each item needs menuItemId and quantity >= 1' };
+    }
+    const mi = await prisma.menuItem.findFirst({
+      where: {
+        id: menuItemId,
+        isAvailable: true,
+        category: { restaurantId }
+      },
+      select: { id: true, name: true, price: true }
+    });
+    if (!mi) {
+      return { error: `Invalid or unavailable menu item: ${menuItemId}` };
+    }
+    lineItems.push({
+      menuItemId: mi.id,
+      name: mi.name,
+      quantity: qty,
+      price: mi.price
+    });
+  }
+  if (!lineItems.length) {
+    return { error: 'No valid items' };
+  }
+  return { lineItems };
+}
+
+async function persistOrderTransaction(req, params) {
+  const {
+    restaurant,
+    tableId,
+    userId,
+    lineItems,
+    orderType,
+    customerName,
+    customerPhone,
+    externalOrderRef,
+    deliveryAddress,
+    occupyTable,
+    initialStatus = 'PENDING',
+    skipInventoryDeduction = false,
+    ioEvent = 'new-kitchen-order'
+  } = params;
+
+  const t0 = computeFullOrderTotals(lineItems, null, 0);
+  let lowStockAlerts = [];
+
+  const order = await prisma.$transaction(async (tx) => {
+    const created = await tx.order.create({
+      data: {
+        restaurantId: restaurant.id,
+        tableId: tableId || null,
+        userId: userId ?? null,
+        status: initialStatus,
+        paymentStatus: 'UNPAID',
+        orderType: orderType || 'DINE_IN',
+        customerName: customerName || null,
+        customerPhone: customerPhone || null,
+        deliveryAddress: deliveryAddress || null,
+        externalOrderRef: externalOrderRef || null,
+        subtotal: t0.subtotal,
+        gstAmount: t0.gstAmount,
+        discountType: null,
+        discountValue: 0,
+        discountAmount: 0,
+        totalAmount: t0.totalAmount,
+        items: {
+          create: lineItems.map((li) => ({
+            menuItemId: li.menuItemId,
+            name: li.name,
+            quantity: li.quantity,
+            price: li.price
+          }))
+        }
+      },
+      include: { items: true, table: true, restaurant: true }
+    });
+
+    if (occupyTable && tableId) {
+      await tx.table.update({
+        where: { id: tableId },
+        data: { status: 'OCCUPIED' }
+      });
+    }
+
+    if (!skipInventoryDeduction) {
+      const { lowStock } = await deductIngredientsForOrderLines(tx, {
+        restaurantId: restaurant.id,
+        orderId: created.id,
+        userId: userId || null,
+        lineItems: lineItems.map((li) => ({ menuItemId: li.menuItemId, quantity: li.quantity }))
+      });
+      lowStockAlerts = lowStock;
+    }
+
+    return created;
+  });
+
+  if (lowStockAlerts.length) {
+    sendLowStockAlert(
+      { id: restaurant.id, name: restaurant.name, ownerId: restaurant.ownerId },
+      lowStockAlerts
+    ).catch(() => {});
+  }
+
+  if (ioEvent === 'new-kitchen-order') {
+    emitIo(req, 'new-kitchen-order', {
+      tenantId: restaurant.tenantId,
+      orderId: order.id,
+      restaurantId: restaurant.id
+    });
+  } else if (ioEvent === 'online-pending-approval') {
+    emitIo(req, 'online-order-pending-approval', {
+      tenantId: restaurant.tenantId,
+      orderId: order.id,
+      restaurantId: restaurant.id
+    });
+  }
+
+  return order;
+}
+
 /** POST /orders — create order & send to kitchen */
 exports.createOrder = async (req, res) => {
   try {
@@ -98,62 +237,133 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    const lineItems = items.map((item) => ({
-      menuItemId: item.menuItemId,
-      name: item.name || 'Item',
-      quantity: parseInt(item.quantity, 10) || 1,
-      price: parseFloat(item.price) || 0
-    }));
-
-    const t0 = computeFullOrderTotals(lineItems, null, 0);
-
-    const order = await prisma.$transaction(async (tx) => {
-      const created = await tx.order.create({
-        data: {
-          restaurantId,
-          tableId,
-          userId: req.user.id,
-          status: 'PENDING',
-          paymentStatus: 'UNPAID',
-          orderType: orderType || 'DINE_IN',
-          customerName: customerName || null,
-          customerPhone: customerPhone || null,
-          subtotal: t0.subtotal,
-          gstAmount: t0.gstAmount,
-          discountType: null,
-          discountValue: 0,
-          discountAmount: 0,
-          totalAmount: t0.totalAmount,
-          items: {
-            create: lineItems.map((li) => ({
-              menuItemId: li.menuItemId,
-              name: li.name,
-              quantity: li.quantity,
-              price: li.price
-            }))
-          }
-        },
-        include: { items: true, table: true, restaurant: true }
-      });
-
-      await tx.table.update({
-        where: { id: tableId },
-        data: { status: 'OCCUPIED' }
-      });
-
-      return created;
-    });
-
-    emitIo(req, 'new-kitchen-order', {
-      tenantId: restaurant.tenantId,
-      orderId: order.id,
-      restaurantId
+    const lineItems = mapIncomingPosItems(items);
+    const order = await persistOrderTransaction(req, {
+      restaurant,
+      tableId,
+      userId: req.user.id,
+      lineItems,
+      orderType: orderType || 'DINE_IN',
+      customerName,
+      customerPhone,
+      externalOrderRef: null,
+      deliveryAddress: null,
+      occupyTable: true,
+      initialStatus: 'PENDING',
+      skipInventoryDeduction: false,
+      ioEvent: 'new-kitchen-order'
     });
 
     res.status(201).json({ success: true, data: order });
   } catch (error) {
     const status = error.status || 500;
     res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+/** POST /orders/public/:tenantId — guest online order (no table, no auth) */
+exports.createPublicOnlineOrder = async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const { items, customerName, customerPhone, deliveryAddress } = req.body || {};
+    if (!items?.length) {
+      return res.status(400).json({ success: false, message: 'items are required' });
+    }
+
+    const restaurant = await prisma.restaurant.findFirst({
+      where: { tenantId, status: 'ACTIVE' },
+      select: { id: true, tenantId: true, name: true, ownerId: true }
+    });
+    if (!restaurant) {
+      return res.status(404).json({ success: false, message: 'Restaurant not found or not accepting orders' });
+    }
+
+    const { lineItems, error } = await resolveLineItemsFromDb(restaurant.id, items);
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const order = await persistOrderTransaction(req, {
+      restaurant,
+      tableId: null,
+      userId: null,
+      lineItems,
+      orderType: 'OWN_WEBSITE',
+      customerName,
+      customerPhone,
+      externalOrderRef: null,
+      deliveryAddress,
+      occupyTable: false,
+      initialStatus: 'AWAITING_APPROVAL',
+      skipInventoryDeduction: true,
+      ioEvent: 'online-pending-approval'
+    });
+
+    res.status(201).json({ success: true, data: order });
+  } catch (error) {
+    const status = error.status || 500;
+    res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Partner webhooks (Swiggy / Zomato placeholder contract).
+ * Body: { restaurantTenantId, externalOrderId, customer?: { name, phone }, deliveryAddress?, items: [{ menuItemId, quantity }] }
+ * Prices are taken from your menu in DB (not from partner payload).
+ */
+exports.createFromPartnerWebhook = async (req, res, orderType) => {
+  try {
+    const { restaurantTenantId, externalOrderId, customer, items, deliveryAddress } = req.body || {};
+    if (!restaurantTenantId || externalOrderId == null || String(externalOrderId).trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'restaurantTenantId and externalOrderId are required'
+      });
+    }
+    if (!items?.length) {
+      return res.status(400).json({ success: false, message: 'items[] is required' });
+    }
+
+    const restaurant = await prisma.restaurant.findFirst({
+      where: { tenantId: String(restaurantTenantId), status: 'ACTIVE' },
+      select: { id: true, tenantId: true, name: true, ownerId: true }
+    });
+    if (!restaurant) {
+      return res.status(404).json({ success: false, message: 'Restaurant not found' });
+    }
+
+    const ref = `${orderType}:${String(externalOrderId).trim()}`;
+    const dup = await prisma.order.findFirst({
+      where: { restaurantId: restaurant.id, externalOrderRef: ref }
+    });
+    if (dup) {
+      return res.status(200).json({ success: true, data: dup, duplicate: true });
+    }
+
+    const { lineItems, error } = await resolveLineItemsFromDb(restaurant.id, items);
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const order = await persistOrderTransaction(req, {
+      restaurant,
+      tableId: null,
+      userId: null,
+      lineItems,
+      orderType,
+      customerName: customer?.name,
+      customerPhone: customer?.phone,
+      externalOrderRef: ref,
+      deliveryAddress,
+      occupyTable: false,
+      initialStatus: 'AWAITING_APPROVAL',
+      skipInventoryDeduction: true,
+      ioEvent: 'online-pending-approval'
+    });
+
+    res.status(201).json({ success: true, data: order });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -174,6 +384,12 @@ exports.addOrderItems = async (req, res) => {
     if (order.status === 'COMPLETED' || order.paymentStatus === 'PAID') {
       return res.status(400).json({ success: false, message: 'Order is already closed' });
     }
+    if (order.status === 'AWAITING_APPROVAL') {
+      return res.status(400).json({
+        success: false,
+        message: 'Approve this order at POS before adding items'
+      });
+    }
 
     await assertRestaurantAccess(req, order.restaurantId);
 
@@ -185,9 +401,33 @@ exports.addOrderItems = async (req, res) => {
       price: parseFloat(item.price) || 0
     }));
 
-    await prisma.orderItem.createMany({ data: lineItems });
+    let lowStockAlerts = [];
+    await prisma.$transaction(async (tx) => {
+      await tx.orderItem.createMany({ data: lineItems });
+      const { lowStock } = await deductIngredientsForOrderLines(tx, {
+        restaurantId: order.restaurantId,
+        orderId: id,
+        userId: req.user.id,
+        lineItems: items.map((item) => ({
+          menuItemId: item.menuItemId,
+          quantity: parseInt(item.quantity, 10) || 1
+        }))
+      });
+      lowStockAlerts = lowStock;
+    });
 
     const updated = await recalcOrderTotals(id);
+
+    if (lowStockAlerts.length) {
+      sendLowStockAlert(
+        {
+          id: order.restaurant.id,
+          name: order.restaurant.name,
+          ownerId: order.restaurant.ownerId
+        },
+        lowStockAlerts
+      ).catch(() => {});
+    }
 
     emitIo(req, 'kitchen-order-updated', {
       tenantId: order.restaurant.tenantId,
@@ -215,6 +455,12 @@ exports.applyDiscount = async (req, res) => {
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
     if (order.status === 'COMPLETED' || order.paymentStatus === 'PAID') {
       return res.status(400).json({ success: false, message: 'Order is closed' });
+    }
+    if (order.status === 'AWAITING_APPROVAL') {
+      return res.status(400).json({
+        success: false,
+        message: 'Approve this order at POS before applying a discount'
+      });
     }
 
     await assertRestaurantAccess(req, order.restaurantId);
@@ -258,6 +504,12 @@ exports.advanceKitchenStatus = async (req, res) => {
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
     if (order.status === 'COMPLETED' || order.paymentStatus === 'PAID') {
       return res.status(400).json({ success: false, message: 'Order is closed' });
+    }
+    if (order.status === 'AWAITING_APPROVAL') {
+      return res.status(400).json({
+        success: false,
+        message: 'Approve this order at POS before the kitchen can start'
+      });
     }
 
     await assertRestaurantAccess(req, order.restaurantId);
@@ -306,6 +558,12 @@ exports.markAsPaid = async (req, res) => {
 
     if (order.paymentStatus === 'PAID') {
       return res.status(400).json({ success: false, message: 'Order already paid' });
+    }
+    if (order.status === 'AWAITING_APPROVAL') {
+      return res.status(400).json({
+        success: false,
+        message: 'Approve this order at POS before taking payment'
+      });
     }
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -403,6 +661,164 @@ exports.getOrders = async (req, res) => {
   }
 };
 
+/** GET /orders/incoming/restaurant/:restaurantId — online/partner queue for POS */
+exports.getIncomingOrdersQueue = async (req, res) => {
+  try {
+    const { restaurantId } = req.params;
+    await assertRestaurantAccess(req, restaurantId);
+
+    const awaitingApproval = await prisma.order.findMany({
+      where: {
+        restaurantId,
+        status: 'AWAITING_APPROVAL',
+        paymentStatus: 'UNPAID'
+      },
+      include: { items: { include: { menuItem: true } } },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    const billableOpen = await prisma.order.findMany({
+      where: {
+        restaurantId,
+        tableId: null,
+        paymentStatus: 'UNPAID',
+        status: { notIn: ['COMPLETED', 'AWAITING_APPROVAL', 'REJECTED'] }
+      },
+      include: { items: { include: { menuItem: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 80
+    });
+
+    res.json({
+      success: true,
+      data: { awaitingApproval, billableOpen }
+    });
+  } catch (error) {
+    const statusCode = error.status || 500;
+    res.status(statusCode).json({ success: false, message: error.message });
+  }
+};
+
+/** GET /orders/pos-order/:id — full order for POS billing */
+exports.getOrderByIdForStaff = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: { items: { include: { menuItem: true } }, table: true, restaurant: true }
+    });
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    await assertRestaurantAccess(req, order.restaurantId);
+    res.json({ success: true, data: order });
+  } catch (error) {
+    const statusCode = error.status || 500;
+    res.status(statusCode).json({ success: false, message: error.message });
+  }
+};
+
+/** PATCH /orders/:id/approve-incoming — POS accepts online/partner order → kitchen + stock */
+exports.approveIncomingOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: { restaurant: true, items: true }
+    });
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (order.status !== 'AWAITING_APPROVAL') {
+      return res.status(400).json({
+        success: false,
+        message: 'This order is not waiting for approval'
+      });
+    }
+
+    await assertRestaurantAccess(req, order.restaurantId);
+
+    const lineItems = order.items.map((i) => ({
+      menuItemId: i.menuItemId,
+      quantity: i.quantity
+    }));
+
+    let lowStockAlerts = [];
+    await prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id },
+        data: { status: 'PENDING' }
+      });
+      const { lowStock } = await deductIngredientsForOrderLines(tx, {
+        restaurantId: order.restaurantId,
+        orderId: id,
+        userId: req.user.id,
+        lineItems
+      });
+      lowStockAlerts = lowStock;
+    });
+
+    if (lowStockAlerts.length) {
+      sendLowStockAlert(
+        { id: order.restaurant.id, name: order.restaurant.name, ownerId: order.restaurant.ownerId },
+        lowStockAlerts
+      ).catch(() => {});
+    }
+
+    emitIo(req, 'new-kitchen-order', {
+      tenantId: order.restaurant.tenantId,
+      orderId: id,
+      restaurantId: order.restaurantId
+    });
+    emitIo(req, 'online-order-queue-updated', {
+      tenantId: order.restaurant.tenantId,
+      restaurantId: order.restaurantId
+    });
+
+    const updated = await prisma.order.findUnique({
+      where: { id },
+      include: { items: { include: { menuItem: true } }, table: true, restaurant: true }
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    const status = error.status || 500;
+    res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+/** PATCH /orders/:id/reject-incoming — POS declines (no kitchen, no stock move) */
+exports.rejectIncomingOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: { restaurant: true }
+    });
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (order.status !== 'AWAITING_APPROVAL') {
+      return res.status(400).json({
+        success: false,
+        message: 'This order is not waiting for approval'
+      });
+    }
+
+    await assertRestaurantAccess(req, order.restaurantId);
+
+    const updated = await prisma.order.update({
+      where: { id },
+      data: { status: 'REJECTED' },
+      include: { items: { include: { menuItem: true } }, table: true, restaurant: true }
+    });
+
+    emitIo(req, 'online-order-queue-updated', {
+      tenantId: order.restaurant.tenantId,
+      restaurantId: order.restaurantId
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    const status = error.status || 500;
+    res.status(status).json({ success: false, message: error.message });
+  }
+};
+
 /** GET kitchen board — open unpaid orders (optionally filter by status) */
 exports.getKitchenOrders = async (req, res) => {
   try {
@@ -413,11 +829,12 @@ exports.getKitchenOrders = async (req, res) => {
 
     const where = {
       restaurantId,
-      paymentStatus: 'UNPAID',
-      status: { not: 'COMPLETED' }
+      paymentStatus: 'UNPAID'
     };
     if (status && status !== 'ALL') {
       where.status = status;
+    } else {
+      where.status = { notIn: ['COMPLETED', 'AWAITING_APPROVAL', 'REJECTED'] };
     }
 
     const orders = await prisma.order.findMany({

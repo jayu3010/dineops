@@ -90,7 +90,7 @@ async function main() {
           name: restaurantName,
           tenantId: "petpooja-copy",
           address: "123 Main St",
-          city: "San Francisco",
+          city: "Mumbai",
           cuisine: "Indian",
           description: "A copy of Petpooja",
           openTime: "09:00",
@@ -98,7 +98,12 @@ async function main() {
           phone: "1234567890",
           ownerId: admin.id,
           planId: plan.id,
-          status: "ACTIVE"
+          status: "ACTIVE",
+          priceForTwo: 800,
+          vegFriendly: true,
+          outdoorSeating: false,
+          parkingAvailable: true,
+          acceptsCards: true
         }
       });
       console.log('Sample restaurant created');
@@ -107,6 +112,16 @@ async function main() {
     }
   } else {
     console.log('Sample restaurant already exists');
+    await prisma.restaurant.updateMany({
+      where: { tenantId: 'petpooja-copy' },
+      data: {
+        city: 'Mumbai',
+        priceForTwo: 800,
+        vegFriendly: true,
+        parkingAvailable: true,
+        acceptsCards: true
+      }
+    });
   }
 
   // 4. Create Tables
@@ -130,6 +145,28 @@ async function main() {
       console.log('10 tables seeded.');
     } else {
       console.log(`${tableCount} tables already exist`);
+    }
+  }
+
+  // 4b. Time slots (public booking)
+  if (restaurant) {
+    const slotCount = await prisma.timeSlot.count({ where: { restaurantId: restaurant.id } });
+    if (slotCount === 0) {
+      const slotDefs = [
+        { startTime: '12:00', endTime: '14:00' },
+        { startTime: '13:00', endTime: '15:00' },
+        { startTime: '18:00', endTime: '20:00' },
+        { startTime: '19:00', endTime: '21:00' },
+        { startTime: '20:00', endTime: '22:00' }
+      ];
+      for (const s of slotDefs) {
+        await prisma.timeSlot.create({
+          data: { restaurantId: restaurant.id, ...s, isActive: true }
+        });
+      }
+      console.log('Time slots seeded.');
+    } else {
+      console.log(`${slotCount} time slots already exist`);
     }
   }
 

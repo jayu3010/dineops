@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Store, Users, CheckCircle, XCircle, AlertCircle, TrendingUp } from 'lucide-react';
+import { Store, CheckCircle, XCircle, AlertCircle, TrendingUp } from 'lucide-react';
 import api from '../../api/axios';
 import { toast } from 'react-hot-toast';
 

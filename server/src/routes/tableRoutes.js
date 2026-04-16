@@ -6,6 +6,8 @@ const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 const POS_ROLES = ['ADMIN', 'SUPERADMIN', 'MANAGER', 'WAITER', 'CASHIER'];
 const TABLE_ADMIN = ['ADMIN', 'SUPERADMIN', 'MANAGER'];
 
+router.get('/public/:tenantId', tableController.getPublicTablesByTenant);
+
 // Get all tables for a restaurant
 router.get('/all/:restaurantId', verifyToken, verifyRole(...POS_ROLES), tableController.getTables);
 

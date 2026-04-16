@@ -11,6 +11,34 @@ function sortTablesByNumberNatural(tables) {
   );
 }
 
+/** GET for booking UI — active restaurant only, no floor-plan coords required */
+exports.getPublicTablesByTenant = async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const restaurant = await prisma.restaurant.findFirst({
+      where: { tenantId, status: 'ACTIVE' },
+      select: { id: true }
+    });
+    if (!restaurant) {
+      return res.status(404).json({ success: false, message: 'Restaurant not found' });
+    }
+    const tables = await prisma.table.findMany({
+      where: { restaurantId: restaurant.id },
+      select: {
+        id: true,
+        tableNumber: true,
+        capacity: true,
+        status: true,
+        section: true
+      }
+    });
+    const sorted = sortTablesByNumberNatural(tables);
+    res.json({ success: true, data: sorted });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.getTables = async (req, res) => {
   const client = new MongoClient(process.env.DATABASE_URL);
   try {

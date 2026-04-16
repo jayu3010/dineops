@@ -6,6 +6,8 @@ const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 const POS_ROLES = ['ADMIN', 'SUPERADMIN', 'MANAGER', 'WAITER', 'CASHIER'];
 const REPORT_ROLES = ['ADMIN', 'SUPERADMIN', 'MANAGER'];
 
+router.post('/public/:tenantId', orderController.createPublicOnlineOrder);
+
 router.get(
   '/reports/restaurant/:restaurantId',
   verifyToken,
@@ -25,6 +27,18 @@ router.get(
   orderController.getActiveOrderForTable
 );
 router.get(
+  '/incoming/restaurant/:restaurantId',
+  verifyToken,
+  verifyRole(...POS_ROLES),
+  orderController.getIncomingOrdersQueue
+);
+router.get(
+  '/pos-order/:id',
+  verifyToken,
+  verifyRole(...POS_ROLES),
+  orderController.getOrderByIdForStaff
+);
+router.get(
   '/restaurant/:restaurantId',
   verifyToken,
   verifyRole(...POS_ROLES),
@@ -32,6 +46,18 @@ router.get(
 );
 
 router.post('/', verifyToken, verifyRole(...POS_ROLES), orderController.createOrder);
+router.patch(
+  '/:id/approve-incoming',
+  verifyToken,
+  verifyRole(...POS_ROLES),
+  orderController.approveIncomingOrder
+);
+router.patch(
+  '/:id/reject-incoming',
+  verifyToken,
+  verifyRole(...POS_ROLES),
+  orderController.rejectIncomingOrder
+);
 router.patch('/:id/discount', verifyToken, verifyRole(...POS_ROLES), orderController.applyDiscount);
 router.patch('/:id/items', verifyToken, verifyRole(...POS_ROLES), orderController.addOrderItems);
 router.patch('/:id/kitchen-status', verifyToken, verifyRole(...POS_ROLES), orderController.advanceKitchenStatus);

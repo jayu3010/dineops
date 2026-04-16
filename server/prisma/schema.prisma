@@ -26,6 +26,7 @@ model User {
   reviews             Review[]
   notifications       Notification[]
   orders              Order[]
+  stockTransactions   StockTransaction[]
 }
 
 model Restaurant {
@@ -37,6 +38,12 @@ model Restaurant {
   city           String
   cuisine        String
   description    String
+  /// Approx. cost for two (₹), for discovery / filters
+  priceForTwo    Float?
+  vegFriendly    Boolean        @default(false)
+  outdoorSeating Boolean        @default(false)
+  parkingAvailable Boolean      @default(false)
+  acceptsCards   Boolean        @default(false)
   openTime       String
   closeTime      String
   phone          String
@@ -55,6 +62,10 @@ model Restaurant {
   subscriptions  Subscription[]
   menuCategories MenuCategory[]
   orders         Order[]
+  ingredients    Ingredient[]
+  suppliers      Supplier[]
+  purchaseOrders PurchaseOrder[]
+  stockTxs       StockTransaction[]
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 }
@@ -175,6 +186,7 @@ model MenuItem {
   image       String?
   isAvailable Boolean      @default(true)
   orderItems  OrderItem[]
+  recipeIngredients MenuItemIngredient[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -193,6 +205,10 @@ model Order {
   paymentMode    String?
   customerName   String?
   customerPhone  String?
+  /// Delivery / online checkout address (optional)
+  deliveryAddress String?
+  /// Idempotency for partner webhooks, e.g. "SWIGGY:order-123"
+  externalOrderRef String?
   orderType      String      @default("DINE_IN")
   subtotal       Float       @default(0)
   gstAmount      Float       @default(0)
@@ -202,8 +218,112 @@ model Order {
   totalAmount    Float       @default(0)
   completedAt    DateTime?
   items          OrderItem[]
+  stockTransactions StockTransaction[]
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+
+  @@index([restaurantId, externalOrderRef])
+}
+
+model Supplier {
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId   String          @db.ObjectId
+  restaurant     Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name           String
+  phone          String?
+  email          String?
+  address        String?
+  /// Items or categories this supplier typically provides (free text)
+  itemsNote      String?
+  ingredients    Ingredient[]
+  purchaseOrders PurchaseOrder[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([restaurantId])
+}
+
+model Ingredient {
+  id                String               @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId      String               @db.ObjectId
+  restaurant        Restaurant           @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name              String
+  /// kg | L | pcs | ml
+  unit              String
+  currentStock      Float                @default(0)
+  minStockAlert     Float                @default(0)
+  costPerUnit       Float                @default(0)
+  supplierId        String?              @db.ObjectId
+  supplier          Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  category          String?
+  recipeLinks       MenuItemIngredient[]
+  stockTransactions StockTransaction[]
+  purchaseLines     PurchaseOrderLine[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([restaurantId])
+}
+
+/// Recipe: quantity of ingredient used per one serving of the menu item
+model MenuItemIngredient {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  menuItemId   String     @db.ObjectId
+  menuItem     MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredientId String     @db.ObjectId
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  quantityUsed Float
+
+  @@unique([menuItemId, ingredientId])
+}
+
+/// IN | OUT | WASTE | ADJUST — quantity is always positive; type defines direction
+model StockTransaction {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId String      @db.ObjectId
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  ingredientId String    @db.ObjectId
+  ingredient   Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  type         String
+  quantity     Float
+  note         String?
+  userId       String?     @db.ObjectId
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orderId      String?     @db.ObjectId
+  order        Order?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+
+  @@index([restaurantId, createdAt])
+  @@index([ingredientId])
+}
+
+model PurchaseOrder {
+  id           String              @id @default(auto()) @map("_id") @db.ObjectId
+  restaurantId String              @db.ObjectId
+  restaurant   Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  supplierId   String              @db.ObjectId
+  supplier     Supplier            @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  status       String              @default("PENDING")
+  totalCost    Float               @default(0)
+  orderedAt    DateTime            @default(now())
+  receivedAt   DateTime?
+  lines        PurchaseOrderLine[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([restaurantId])
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  purchaseOrderId String        @db.ObjectId
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  ingredientId    String        @db.ObjectId
+  ingredient      Ingredient    @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  quantity        Float
+  unitCost        Float
+
+  @@index([purchaseOrderId])
 }
 
 model OrderItem {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, ShieldAlert, User, Trash2, Loader2, Search } from 'lucide-react';
+import { User, Trash2, Loader2, Search } from 'lucide-react';
 import api from '../../api/axios';
 import { toast } from 'react-hot-toast';
 import { useAuthStore } from '../../store/authStore';

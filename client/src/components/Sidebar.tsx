@@ -14,7 +14,8 @@ import {
   FileBarChart,
   UserCog,
   CalendarClock,
-  ChefHat
+  ChefHat,
+  Warehouse
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { motion } from 'framer-motion';
@@ -41,6 +42,7 @@ const ownerLinks: SidebarLink[] = [
   { icon: CalendarClock, label: 'Day close', path: '/admin/day-close' },
   { icon: TrendingUp, label: 'Analytics', path: '/analytics' },
   { icon: Utensils, label: 'Menu', path: '/admin/menu' },
+  { icon: Warehouse, label: 'Inventory', path: '/admin/inventory' },
   { icon: UserCog, label: 'Staff', path: '/admin/staff' },
   { icon: ChefHat, label: 'Kitchen', path: '/kitchen' },
   { icon: Store, label: 'My Restaurant', path: '/admin/profile' }
@@ -54,6 +56,7 @@ const managerLinks: SidebarLink[] = [
   { icon: CalendarClock, label: 'Day close', path: '/admin/day-close' },
   { icon: TrendingUp, label: 'Analytics', path: '/analytics' },
   { icon: Utensils, label: 'Menu', path: '/admin/menu' },
+  { icon: Warehouse, label: 'Inventory', path: '/admin/inventory' },
   { icon: ChefHat, label: 'Kitchen', path: '/kitchen' }
 ];
 

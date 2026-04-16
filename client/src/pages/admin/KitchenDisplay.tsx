@@ -58,6 +58,21 @@ function formatElapsed(ms: number) {
   return `${s}s`;
 }
 
+function onlineSourceLabel(orderType: string) {
+  switch (orderType) {
+    case 'SWIGGY':
+      return 'Swiggy';
+    case 'ZOMATO':
+      return 'Zomato';
+    case 'OWN_WEBSITE':
+      return 'Web order';
+    case 'DELIVERY':
+      return 'Delivery';
+    default:
+      return 'Online';
+  }
+}
+
 function statusStyle(status: string) {
   switch (status) {
     case 'PENDING':
@@ -202,10 +217,14 @@ const KitchenDisplay = () => {
             {grouped.map(([tableKey, { tableNumber, orders: tableOrders }]) => (
               <section key={tableKey}>
                 <h2 className="text-lg font-serif font-bold text-secondary mb-4 flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-primary text-white text-sm font-black">
-                    {tableNumber}
+                  <span
+                    className={`inline-flex items-center justify-center min-w-[2.5rem] h-10 px-2 rounded-2xl text-sm font-black ${
+                      tableKey === 'none' ? 'bg-orange-500 text-white' : 'bg-primary text-white'
+                    }`}
+                  >
+                    {tableKey === 'none' ? 'WEB' : tableNumber}
                   </span>
-                  Table {tableNumber}
+                  {tableKey === 'none' ? 'Online, delivery & partners' : `Table ${tableNumber}`}
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
                   <AnimatePresence>
@@ -222,6 +241,11 @@ const KitchenDisplay = () => {
                           <div>
                             <p className="text-xs font-bold uppercase tracking-widest opacity-80">Order</p>
                             <p className="font-mono text-xs opacity-70">{order.id.slice(-8)}</p>
+                            {!order.tableId ? (
+                              <span className="mt-1 inline-block text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full bg-orange-500/25 text-orange-900 border border-orange-400/50">
+                                {onlineSourceLabel(order.orderType || '')}
+                              </span>
+                            ) : null}
                           </div>
                           <div className="text-right">
                             <p className="text-xs font-bold uppercase opacity-80">{order.status}</p>

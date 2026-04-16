@@ -3,6 +3,8 @@ const router = express.Router();
 const bookingController = require('../controllers/bookingController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
+router.get('/slots/public/:tenantId', bookingController.listPublicTimeSlots);
+
 // Create booking (Public or Authenticated)
 router.post('/', (req, res, next) => {
   // If token exists, verify it, else proceed as guest

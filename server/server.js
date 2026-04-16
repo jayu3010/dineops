@@ -17,7 +17,10 @@ app.use((req, res, next) => {
   res.type('application/json');
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-tenant-id');
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-tenant-id, x-webhook-secret'
+  );
   res.header('Access-Control-Max-Age', '86400');
   
   if (req.method === 'OPTIONS') {
@@ -32,7 +35,7 @@ app.use(cors({
   },
   credentials: false,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'Accept']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-webhook-secret', 'Accept']
 }));
 
 const io = new Server(server, {
@@ -87,9 +90,11 @@ app.use('/api/v1/tables', require('./src/routes/tableRoutes'));
 app.use('/api/v1/bookings', require('./src/routes/bookingRoutes'));
 app.use('/api/v1/menu', require('./src/routes/menuRoutes'));
 app.use('/api/v1/orders', require('./src/routes/orderRoutes'));
+app.use('/api/v1/webhooks', require('./src/routes/webhookRoutes'));
 app.use('/api/v1/plans', require('./src/routes/planRoutes'));
 app.use('/api/v1/analytics', require('./src/routes/analyticsRoutes'));
 app.use('/api/v1/staff', require('./src/routes/staffRoutes'));
+app.use('/api/v1/inventory', require('./src/routes/inventoryRoutes'));
 
 // Root route
 app.get('/', (req, res) => {

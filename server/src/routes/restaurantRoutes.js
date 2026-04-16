@@ -3,6 +3,10 @@ const router = express.Router();
 const restaurantController = require('../controllers/restaurantController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
+// Public discovery (no auth) — before protected routes
+router.get('/public', restaurantController.listPublicRestaurants);
+router.get('/public/:tenantId', restaurantController.getPublicRestaurantByTenant);
+
 // Restaurant owner — update profile (GSTIN, FSSAI, etc.) — must be before /:id routes
 router.patch('/my', verifyToken, verifyRole('ADMIN'), restaurantController.patchMyRestaurant);
 

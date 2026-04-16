@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Search, MapPin, Users, Calendar, Filter } from 'lucide-react';
+import { Search, MapPin, Users, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const LandingPage = () => {
