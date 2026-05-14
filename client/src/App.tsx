@@ -7,6 +7,7 @@ import { useAuthStore } from './store/authStore';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminLayout from './components/AdminLayout';
+import Footer from './components/Footer';
 
 // Pages
 import LoginPage from './pages/auth/LoginPage';
@@ -16,6 +17,8 @@ import RestaurantDetail from './pages/user/RestaurantDetail';
 import ExplorePage from './pages/user/ExplorePage';
 import OnlineOrderPage from './pages/user/OnlineOrderPage';
 import MyBookings from './pages/user/MyBookings';
+import RecipesPage from './pages/user/RecipesPage';
+import RecipeDetail from './pages/user/RecipeDetail';
 import SuperAdminDashboard from './pages/superadmin/SuperAdminDashboard';
 import RestaurantSetup from './pages/admin/RestaurantSetup';
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -64,6 +67,7 @@ const App = () => {
                 <main className="flex-1">
                   <Outlet />
                 </main>
+                <Footer />
               </div>
             }
           >
@@ -73,6 +77,8 @@ const App = () => {
             <Route path="/explore" element={<ExplorePage />} />
             <Route path="/restaurant/:tenantId" element={<RestaurantDetail />} />
             <Route path="/order/:tenantId" element={<OnlineOrderPage />} />
+            <Route path="/recipes" element={<RecipesPage />} />
+            <Route path="/recipe/:id" element={<RecipeDetail />} />
           </Route>
 
           {/* User Protected Routes with Navbar */}
@@ -83,6 +89,7 @@ const App = () => {
                 <main className="flex-1">
                   <ProtectedRoute allowedRoles={['USER', 'ADMIN', 'SUPERADMIN', 'MANAGER', 'WAITER', 'CASHIER']} />
                 </main>
+                <Footer />
               </div>
             }
           >

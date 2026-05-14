@@ -25,6 +25,7 @@ const Navbar = () => {
           <div className="hidden md:flex items-center gap-8">
             <Link to="/" className="text-gray-600 hover:text-primary font-medium">Home</Link>
             <Link to="/explore" className="text-gray-600 hover:text-primary font-medium">Explore</Link>
+            <Link to="/recipes" className="text-gray-600 hover:text-primary font-medium">Recipes</Link>
             
             {isAuthenticated ? (
               <div className="flex items-center gap-4">
@@ -59,6 +60,7 @@ const Navbar = () => {
         <div className="md:hidden bg-white border-b border-orange-100 p-4 space-y-4">
           <Link to="/" className="block text-gray-600 font-medium">Home</Link>
           <Link to="/explore" className="block text-gray-600 font-medium">Explore</Link>
+          <Link to="/recipes" className="block text-gray-600 font-medium">Recipes</Link>
           <div className="pt-4 border-t border-gray-100">
             {isAuthenticated ? (
               <button onClick={handleLogout} className="flex items-center gap-2 text-danger font-medium">
