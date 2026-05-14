@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import RecipeCard, { Recipe } from '../../components/RecipeCard';
+import RecipeCard, { type Recipe } from '../../components/RecipeCard';
 import { Search, Filter, ChefHat } from 'lucide-react';
 import { motion } from 'framer-motion';
 
